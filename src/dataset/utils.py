@@ -1,6 +1,6 @@
 """
 Author: Lu Hou Yang
-Last updated: 7 July 2025
+Last updated: 8 July 2025
 
 Contains utility functions for 
 - 3D eye gaze data and voice recording
@@ -15,7 +15,7 @@ Notes
 """
 
 import os
-import pathlib
+from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -23,11 +23,33 @@ import pandas as pd
 import open3d as o3d
 
 import matplotlib.pyplot as plt
-
 from tqdm import tqdm
+
+import torchaudio
+
+# Pottery parameters
+# Coordinate range of xyz can be between [-400, 400]
+DEFAULT_BALL_RADIUS = 25
+# https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
+# Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
+DEFAULT_HOLOLENS_2_SPATIAL_ERROR = 2.66
+
+# Dogu parameters
+# Coordinate range of xyz are between [-100, 100]
+DEFAULT_DOGU_PARAMETERS_DICT = {
+    "IN0295(86)": [5, 5],
+    "IN0306(87)": [3, 1.5],
+    "NZ0001(90)": [3, 1.5],
+    "SK0035(91)": [7, 5],
+    "MH0037(88)": [3, 1.5],
+    "NM0239(89)": [3, 1.5],
+    "TK0020(92)": [3, 1.25],
+    "UD0028(93)": [6, 2],
+}
 
 # Colors
 DEFAULT_CMAP = plt.get_cmap('jet')
+DEFAULT_BASE_COLOR = [0.0, 0.0, 0.0]
 
 # Pottery & Dogu assigned numbers
 ASSIGNED_NUMBERS_DICT = {
@@ -197,28 +219,58 @@ def calculate_normalized_point_intensity(pcd, ball_radius):
 
 
 def generate_filtered_dataset_report(
+    errors: dict = {},
     groups: List = [],
     session_ids: List = [],
     pottery_ids: List = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.1,
+    min_voice_quality: float = 0.0,
+    from_tracking_sheet: bool = False,
+    tracking_sheet_path: str = "",
 ):
     pass
 
 
 def filter_data_on_condition(
+    preprocess: bool = True,
+    ball_radius: float = DEFAULT_BALL_RADIUS,
+    hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    base_color: List = DEFAULT_BASE_COLOR,
+    dogu_parameters_dict: dict = DEFAULT_DOGU_PARAMETERS_DICT,
     groups: List = [],
     session_ids: List = [],
     pottery_ids: List = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.1,
+    min_voice_quality: float = 0.0,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
     generate_report: bool = True,
 ):
-    pass
+    # Store {ERROR : Number of instance} pairs
+    errors = {}
+
+    # Check if each data instance / file path exists
+    data = []
+
+    if (preprocess):
+        pass
+
+    if (generate_report):
+        generate_report(
+            errors=errors,
+            groups=groups,
+            session_ids=session_ids,
+            pottery_ids=pottery_ids,
+            min_pointcloud_size=min_pointcloud_size,
+            min_qa_size=min_qa_size,
+            min_voice_quality=min_voice_quality,
+            from_tracking_sheet=from_tracking_sheet,
+            tracking_sheet_path=tracking_sheet_path,
+        )
+
+    return data
 
 
 ### PROCESS DATA ###
@@ -226,7 +278,7 @@ def filter_data_on_condition(
 
 def create_gaze_intensity_point_cloud(
     input_file,
-    ball_radius,
+    ball_radius=DEFAULT_BALL_RADIUS,
     CMAP=DEFAULT_CMAP,
 ):
     """
@@ -268,12 +320,12 @@ def create_gaze_intensity_point_cloud(
 def create_gaze_intensity_heatmap_mesh(
     input_file,
     model_file,
-    ball_radius,
+    ball_radius = DEFAULT_BALL_RADIUS,
     # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
     # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
-    HOLOLENS_2_SPATIAL_ERROR = 6.45,
-    BASE_COLOR = [0.0, 0.0, 0.0],
-    CMAP=DEFAULT_CMAP,
+    HOLOLENS_2_SPATIAL_ERROR = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    BASE_COLOR = DEFAULT_BASE_COLOR,
+    CMAP = DEFAULT_CMAP,
 ):
     """
     Create a heatmap on a provided 3D mesh model based on the intensity
@@ -370,9 +422,9 @@ def create_gaze_intensity_heatmap_mesh(
 def create_qna_segmentation_mesh(
     input_file,
     model_file,
-    association_radius,
-    QNA_ANSEWR_COLOR_MAP=DEFAULT_QNA_ANSEWR_COLOR_MAP,
-    BASE_COLOR = [0.0, 0.0, 0.0],
+    association_radius = DEFAULT_BALL_RADIUS,
+    QNA_ANSEWR_COLOR_MAP = DEFAULT_QNA_ANSEWR_COLOR_MAP,
+    BASE_COLOR = DEFAULT_BASE_COLOR,
 ):
     """
     Assigns specific colors and color names based on predefined answer choices,
@@ -448,7 +500,7 @@ def create_qna_segmentation_mesh(
             f"Error: Base model file '{model_file}' not found. Cannot perform mesh operations."
         )
         return None
-    
+
     mesh = o3d.io.read_triangle_mesh(model_file)
     vertices = np.asarray(mesh.vertices)
 
@@ -471,7 +523,7 @@ def create_qna_segmentation_mesh(
         category_tree = o3d.geometry.KDTreeFlann(pcd_category_gaze)
 
         category_rgb_01 = np.array(QNA_ANSEWR_COLOR_MAP[answer_category]["rgb"]) / 255.0
-    
+
         # Create a copy of the base mesh for this segment
         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
         segmented_mesh.paint_uniform_color(BASE_COLOR)
@@ -491,7 +543,13 @@ def create_qna_segmentation_mesh(
 
 
 def process_voice_data(input_file):
-    pass
+    if not Path(input_file).exists():
+        return
+
+    # 2646000 / 60 * 45 = 1992000
+    waveform, sample_rate = torchaudio.load(input_file, num_frames=1992000)
+
+    return waveform, sample_rate
 
 
 ### VISUALIZATIONS ###

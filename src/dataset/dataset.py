@@ -1,6 +1,6 @@
 """
 Author: Lu Hou Yang
-Last updated: 7 July 2025
+Last updated: 8 July 2025
 
 Contains Jomon Kaen Datasets
 - Preprocessed
@@ -11,6 +11,9 @@ Contains Jomon Kaen Datasets
 - In-Time
     - load and processed as training happens
     - may cause large overhead and bottleneck
+
+Tracking sheet can be downloaded from the Google Sheet.
+Apply filters to the METADATA Sheet and export as CSV.
 """
 
 import os
@@ -26,26 +29,26 @@ import open3d as o3d
 
 from pathlib import Path
 from tqdm import tqdm
+from utils import *
 
 ### VARIABLES ###
 
 # Pottery parameters
 # Coordinate range of xyz can be between [-400, 400]
-point_cloud_ball_radius = 25
-mesh_interpolation_radius = 10
 ball_radius = 25
+hololens_2_spatial_error = 2.66
 
 # Dogu parameters
 # Coordinate range of xyz are between [-100, 100]
 dogu_parameters_dict = {
-    "IN0295(86)": [5, 5, 5],
-    "IN0306(87)": [3, 1.5, 3],
-    "NZ0001(90)": [3, 1.5, 3],
-    "SK0035(91)": [7, 5, 7],
-    "MH0037(88)": [3, 1.5, 3],
-    "NM0239(89)": [3, 1.5, 3],
-    "TK0020(92)": [3, 1.25, 3],
-    "UD0028(93)": [6, 2, 6],
+    "IN0295(86)": [5, 5],
+    "IN0306(87)": [3, 1.5],
+    "NZ0001(90)": [3, 1.5],
+    "SK0035(91)": [7, 5],
+    "MH0037(88)": [3, 1.5],
+    "NM0239(89)": [3, 1.5],
+    "TK0020(92)": [3, 1.25],
+    "UD0028(93)": [6, 2],
 }
 
 
@@ -56,16 +59,35 @@ def get_jomon_kaen_dataset(
     pottery_ids: List = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.1,
+    min_voice_quality: float = 0.0,
     preprocess: bool = True,
     use_cache: bool = True,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
 ):
     if (preprocess):
-        return PreprocessJomonKaenDataset()
+        return PreprocessJomonKaenDataset(
+            root=root,
+            groups=groups,
+            session_ids=session_ids,
+            pottery_ids=pottery_ids,
+            min_pointcloud_size=min_pointcloud_size,
+            min_qa_size=min_qa_size,
+            min_voice_quality=min_voice_quality,
+            use_cache=use_cache,
+            from_tracking_sheet=from_tracking_sheet,
+            tracking_sheet_path=tracking_sheet_path,
+        )
     else:
-        return InTimeJomonKaenDataset()
+        return InTimeJomonKaenDataset(
+            root=root,
+            groups=groups,
+            session_ids=session_ids,
+            pottery_ids=pottery_ids,
+            min_pointcloud_size=min_pointcloud_size,
+            min_qa_size=min_qa_size,
+            min_voice_quality=min_voice_quality,
+        )
 
 
 class PreprocessJomonKaenDataset(Dataset):
@@ -78,14 +100,18 @@ class PreprocessJomonKaenDataset(Dataset):
         pottery_ids: List = [],
         min_pointcloud_size: float = 0.0,
         min_qa_size: float = 0.0,
-        min_voice_quality: float = 0.1,
+        min_voice_quality: float = 0.0,
+        use_cache: bool = True,
+        from_tracking_sheet: bool = False,
+        tracking_sheet_path: str = "",
     ):
         super(PreprocessJomonKaenDataset, self).__init__()
 
         self.processed_dir = "processed"  # Create a folder at the same level as 'raw'
+        self.data = filter_data_on_condition(preprocess=True)
 
-    def __len__():
-        pass
+    def __len__(self):
+        return len(self.data)
 
     def __getitem__(self, index):
         return super().__getitem__(index)
@@ -101,12 +127,14 @@ class InTimeJomonKaenDataset(Dataset):
         pottery_ids: List = [],
         min_pointcloud_size: float = 0.0,
         min_qa_size: float = 0.0,
-        min_voice_quality: float = 0.1,
+        min_voice_quality: float = 0.0,
     ):
         super(InTimeJomonKaenDataset, self).__init__()
 
-    def __len__():
-        pass
+        self.data = filter_data_on_condition(preprocess=False)
+
+    def __len__(self):
+        return len(self.data)
 
     def __getitem__(self, index):
         return super().__getitem__(index)
