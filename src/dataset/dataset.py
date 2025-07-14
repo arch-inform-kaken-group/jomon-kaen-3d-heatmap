@@ -31,35 +31,19 @@ from pathlib import Path
 from tqdm import tqdm
 from utils import *
 
-### VARIABLES ###
-
-# Pottery parameters
-# Coordinate range of xyz can be between [-400, 400]
-ball_radius = 25
-hololens_2_spatial_error = 2.66
-
-# Dogu parameters
-# Coordinate range of xyz are between [-100, 100]
-dogu_parameters_dict = {
-    "IN0295(86)": [5, 5],
-    "IN0306(87)": [3, 1.5],
-    "NZ0001(90)": [3, 1.5],
-    "SK0035(91)": [7, 5],
-    "MH0037(88)": [3, 1.5],
-    "NM0239(89)": [3, 1.5],
-    "TK0020(92)": [3, 1.25],
-    "UD0028(93)": [6, 2],
-}
-
 
 def get_jomon_kaen_dataset(
     root: str = "",
+    mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
+    hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    base_color: List = DEFAULT_BASE_COLOR,
+    cmap=DEFAULT_CMAP,
     groups: List = [],
     session_ids: List = [],
     pottery_ids: List = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.0,
+    min_voice_quality: float = 0.1,
     preprocess: bool = True,
     use_cache: bool = True,
     from_tracking_sheet: bool = False,
@@ -68,6 +52,10 @@ def get_jomon_kaen_dataset(
     if (preprocess):
         return PreprocessJomonKaenDataset(
             root=root,
+            mode=mode,
+            hololens_2_spatial_error=hololens_2_spatial_error,
+            base_color=base_color,
+            cmap=cmap,
             groups=groups,
             session_ids=session_ids,
             pottery_ids=pottery_ids,
@@ -81,6 +69,10 @@ def get_jomon_kaen_dataset(
     else:
         return InTimeJomonKaenDataset(
             root=root,
+            mode=mode,
+            hololens_2_spatial_error=hololens_2_spatial_error,
+            base_color=base_color,
+            cmap=cmap,
             groups=groups,
             session_ids=session_ids,
             pottery_ids=pottery_ids,
@@ -95,20 +87,39 @@ class PreprocessJomonKaenDataset(Dataset):
     def __init__(
         self,
         root: str = "",
+        mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
+        hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+        base_color: List = DEFAULT_BASE_COLOR,
+        cmap=DEFAULT_CMAP,
         groups: List = [],
         session_ids: List = [],
         pottery_ids: List = [],
         min_pointcloud_size: float = 0.0,
         min_qa_size: float = 0.0,
-        min_voice_quality: float = 0.0,
+        min_voice_quality: float = 0.1,
         use_cache: bool = True,
         from_tracking_sheet: bool = False,
         tracking_sheet_path: str = "",
     ):
         super(PreprocessJomonKaenDataset, self).__init__()
 
-        self.processed_dir = "processed"  # Create a folder at the same level as 'raw'
-        self.data = filter_data_on_condition(preprocess=True)
+        self.data, errors = filter_data_on_condition(
+            root=root,
+            mode=mode,
+            preprocess=True,
+            hololens_2_spatial_error=hololens_2_spatial_error,
+            base_color=base_color,
+            cmap=cmap,
+            groups=groups,
+            session_ids=session_ids,
+            pottery_ids=pottery_ids,
+            min_pointcloud_size=min_pointcloud_size,
+            min_qa_size=min_qa_size,
+            min_voice_quality=min_voice_quality,
+            use_cache=use_cache,
+            from_tracking_sheet=from_tracking_sheet,
+            tracking_sheet_path=tracking_sheet_path,
+        )
 
     def __len__(self):
         return len(self.data)
@@ -122,16 +133,33 @@ class InTimeJomonKaenDataset(Dataset):
     def __init__(
         self,
         root: str = "",
+        mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
+        hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+        base_color: List = DEFAULT_BASE_COLOR,
+        cmap=DEFAULT_CMAP,
         groups: List = [],
         session_ids: List = [],
         pottery_ids: List = [],
         min_pointcloud_size: float = 0.0,
         min_qa_size: float = 0.0,
-        min_voice_quality: float = 0.0,
+        min_voice_quality: float = 0.1,
     ):
         super(InTimeJomonKaenDataset, self).__init__()
 
-        self.data = filter_data_on_condition(preprocess=False)
+        self.data, errors = filter_data_on_condition(
+            root=root,
+            mode=mode,
+            preprocess=False,
+            hololens_2_spatial_error=hololens_2_spatial_error,
+            base_color=base_color,
+            cmap=cmap,
+            groups=groups,
+            session_ids=session_ids,
+            pottery_ids=pottery_ids,
+            min_pointcloud_size=min_pointcloud_size,
+            min_qa_size=min_qa_size,
+            min_voice_quality=min_voice_quality,
+        )
 
     def __len__(self):
         return len(self.data)
@@ -141,7 +169,14 @@ class InTimeJomonKaenDataset(Dataset):
 
 
 def main():
-    print(torch.__version__)
+    data, errors = filter_data_on_condition(
+        root=r"C:\Users\luhou\Desktop\python\jomon-kaen-3d-heatmap\archive\data",
+        preprocess=False,
+        use_cache=False,
+        from_tracking_sheet=True,
+        tracking_sheet_path=r"C:\Users\luhou\Desktop\python\jomon-kaen-3d-heatmap\archive\dataset\Tracking_Sheet_METADATA.csv",
+        mode=0)
+    print(errors, len(data))
 
 
 if "__main__" == __name__:

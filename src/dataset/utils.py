@@ -16,6 +16,9 @@ Notes
 
 import os
 from pathlib import Path
+import sys
+import threading
+import queue
 from typing import List
 
 import numpy as np
@@ -27,25 +30,19 @@ from tqdm import tqdm
 
 import torchaudio
 
-# Pottery parameters
-# Coordinate range of xyz can be between [-400, 400]
-DEFAULT_BALL_RADIUS = 25
+import io
+from reportlab.graphics.shapes import Rect, Drawing
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+from PIL import Image as PILImage
+
 # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
 # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
 DEFAULT_HOLOLENS_2_SPATIAL_ERROR = 2.66
-
-# Dogu parameters
-# Coordinate range of xyz are between [-100, 100]
-DEFAULT_DOGU_PARAMETERS_DICT = {
-    "IN0295(86)": [5, 5],
-    "IN0306(87)": [3, 1.5],
-    "NZ0001(90)": [3, 1.5],
-    "SK0035(91)": [7, 5],
-    "MH0037(88)": [3, 1.5],
-    "NM0239(89)": [3, 1.5],
-    "TK0020(92)": [3, 1.25],
-    "UD0028(93)": [6, 2],
-}
 
 # Colors
 DEFAULT_CMAP = plt.get_cmap('jet')
@@ -152,114 +149,386 @@ ASSIGNED_NUMBERS_DICT = {
 DEFAULT_QNA_ANSEWR_COLOR_MAP = {
     "面白い・気になる形だ": {
         "rgb": [255, 165, 0],
-        "name": "Orange"
+        "name": "orange"
     },
     "美しい・芸術的だ": {
         "rgb": [0, 128, 0],
-        "name": "Green"
+        "name": "green"
     },
     "不思議・意味不明": {
         "rgb": [128, 0, 128],
-        "name": "Purple"
+        "name": "purple"
     },
     "不気味・不安・怖い": {
         "rgb": [255, 0, 0],
-        "name": "Red"
+        "name": "red"
     },
     "何も感じない": {
         "rgb": [255, 255, 0],
-        "name": "Yellow"
+        "name": "yellow"
     },
 }
+
+# Threading
+data_lock = threading.Lock()
+
+# Data paths
+sanity_plot_filename = "pointcloud_occurrence_plot"
+eg_pointcloud_filename = "eye_gaze_intensity_pc"
+eg_heatmap_filename = "eye_gaze_intensity_hm"
+voxel_filename = "eye_gaze_voxel"
+qa_pc_filename = "qa_pc"
+segmented_meshes_dirname = "qa_segmented_mesh"
+combined_qa_mesh_filename = "combined_qa_mesh"
+processed_voice_filename = "processed_voice"
 
 ### CALCULATION ###
 
 
-# yapf: disable
-# Read about KD-Tree (Medium | EN): https://medium.com/@isurangawarnasooriya/exploring-kd-trees-a-comprehensive-guide-to-implementation-and-applications-in-python-3385fd56a246
-# Read about KD-Tree (Qiita | JP): https://qiita.com/RAD0N/items/7a192a4a5351f481c99f
-def calculate_normalized_point_intensity(pcd, ball_radius):
+def _calculate_smoothed_vertex_intensities(
+    gaze_points_np,
+    mesh,
+    hololens_2_spatial_error,
+    gaussian_denominator,
+):
+    # Get the vertices, triangles of the mesh
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    n_vertices = mesh_vertices_np.shape[0]
+
+    # Mapping gaze points to nearest mesh faces (vertices)
+    # Using a raycasting scene from Open3D
+    mesh_scene = o3d.t.geometry.RaycastingScene()
+    mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+    query_points = o3d.core.Tensor(gaze_points_np, dtype=o3d.core.Dtype.Float32)
+    closest_geometry = mesh_scene.compute_closest_points(query_points)
+    closest_face_indices = closest_geometry['primitive_ids'].numpy()
+
+
+### UTILS ###
+
+
+def increment_error(key, path, errors: dict):
+    if errors.get(key) == None:
+        errors[key] = {'count': 1, 'paths': set([path])}
+    else:
+        errors[key]['count'] += 1
+        errors[key]['paths'].add(path)
+
+    return errors
+
+
+def save_geometry_threaded(save_path, geometry, error_queue):
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    def _save_geometry(path, geom, errq):
+        original_verbosity = o3d.utility.VerbosityLevel.Warning
+        try:
+            o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
+            if isinstance(geom, o3d.geometry.PointCloud):
+                o3d.io.write_point_cloud(path, geom, write_ascii=True)
+            elif isinstance(geom, o3d.geometry.TriangleMesh):
+                o3d.io.write_triangle_mesh(path, geom, write_ascii=True)
+            else:
+                print(f"Unsupported geometry type for saving: {type(geom)}",
+                      file=sys.stderr)
+        except Exception as e:
+            print(f"An error occurred while saving geometry to {path}: {e}",
+                  file=sys.stderr)
+            errq.put({'Save error': str(path)})
+        finally:
+            o3d.utility.set_verbosity_level(original_verbosity)
+
+    save_thread = threading.Thread(target=_save_geometry,
+                                   args=(save_path, geometry, error_queue))
+    save_thread.daemon = True
+    save_thread.start()
+    return save_thread
+
+
+def save_plot_threaded(fig, output_plot_path, error_queue):
     """
-    Calculate point intensity using Open3D KDTree for ball radius search.
-
-    Args:
-        pcd: Open3D point cloud object
-        ball_radius (float): Radius for neighborhood search
-
-    Returns:
-        normalized_intensity: Array of normalized intensity values
+    Saves a matplotlib plot in a separate thread.
     """
-    # Build a KD-Tree with FLANN for efficient radius search
-    # Open3D docs: https://www.open3d.org/docs/release/tutorial/geometry/kdtree.html
-    # FLANN docs: https://www.cs.ubc.ca/research/flann/
-    kdtree = o3d.geometry.KDTreeFlann(pcd)
 
-    # Calculate intensity | Find the number of points in a radius of each point
-    intensity = []
-    for i, point in enumerate(pcd.points):
-        # Use KD-Tree to find points within the radius
-        [k, idx, _] = kdtree.search_radius_vector_3d(point, ball_radius)
-        # We are interested in the length of list of indexes (points) in the radius
-        # i.e. the intensity of the point as measured by the density of points within the radius
-        # len(idx) - 1 to exclude the point itself
-        intensity.append(len(idx) - 1)
-    intensity = np.array(intensity)
+    def _save_plot(errq):
+        try:
+            os.makedirs(os.path.dirname(output_plot_path), exist_ok=True)
+            fig.savefig(output_plot_path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+        except Exception as e:
+            print(f"\nError saving plot to {output_plot_path}: {e}")
+            errq.put({'Save plot error': output_plot_path})
 
-    # Normalize intensity to the range [0, 1] for color mapping
-    # NORMALIZED = (VALUE - MIN) / (MAX - MIN)
-    min_intensity = np.min(intensity)
-    max_intensity = np.max(intensity)
-    normalized_intensity = (intensity - min_intensity) / (max_intensity - min_intensity) \
-                            if max_intensity > min_intensity else np.zeros_like(intensity)
+    plot_thread = threading.Thread(target=_save_plot, args=(error_queue))
+    plot_thread.daemon = True
+    plot_thread.start()
+    return plot_thread
 
-    return normalized_intensity
-# yapf: enable
 
 ### FILTERING ###
 
 
-def generate_filtered_dataset_report(
-    errors: dict = {},
-    groups: List = [],
-    session_ids: List = [],
-    pottery_ids: List = [],
-    min_pointcloud_size: float = 0.0,
-    min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.0,
-    from_tracking_sheet: bool = False,
-    tracking_sheet_path: str = "",
-):
-    pass
-
-
+# yapf: disable
 def filter_data_on_condition(
+    root: str = "",
     preprocess: bool = True,
-    ball_radius: float = DEFAULT_BALL_RADIUS,
+    mode: int = 0, # 'STRICT': 0 | 'LINIENT': 1
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
     base_color: List = DEFAULT_BASE_COLOR,
-    dogu_parameters_dict: dict = DEFAULT_DOGU_PARAMETERS_DICT,
+    cmap = DEFAULT_CMAP,
     groups: List = [],
     session_ids: List = [],
     pottery_ids: List = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
-    min_voice_quality: float = 0.0,
+    min_voice_quality: float = 0.1,
+    use_cache: bool = True,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
     generate_report: bool = True,
 ):
+    active_threads = []
+
+    GAUSSIAN_DENOMINATOR = 2 * (hololens_2_spatial_error**2)
+
     # Store {ERROR : Number of instance} pairs
+    # ERROR LIST:
+    # Eye gaze point cloud generation
+    # Eye gaze heatmap generation
+    # QNA Point cloud generation
+    # QNA Segmented heatmap generation
+    # Voice processing
+    # Model path does not exist
+    # Point cloud path does not exist
+    # QNA path does not exist
+    # Voice path does not exist
+    # Save error
+    # Tracking sheet, data mismatch
+    #
+    # FORMAT:
+    # "ERROR": {
+    #   count: int
+    #   paths: List
+    # }
     errors = {}
+    error_queue = queue.Queue()
 
     # Check if each data instance / file path exists
     data = []
+    if not Path(root).exists():
+        raise (ValueError(f"Root directory not found: {root}"))
+    processed_path = "\\".join(Path(root).parts[:-1]) / Path('processed')
+    os.makedirs(processed_path, exist_ok=True)
 
+    pottery_ids = [f"{pid}({ASSIGNED_NUMBERS_DICT[pid]})" for pid in pottery_ids]
+
+    # Filter based on group, session, model
+    print(f"\nCHECKING RAW DATA PATHS")
+    unique_group_keys = set([])
+    unique_session_keys = set([])
+    unique_pottery_keys = set([])
+
+    group_keys = os.listdir(root)
+    unique_group_keys.update(group_keys)
+    for g in group_keys:
+        group_path = root / Path(g)
+        processed_group_path = processed_path / Path(g)
+
+        session_keys = os.listdir(group_path)
+        unique_session_keys.update(session_keys)
+        for s in tqdm(session_keys, desc=g):
+            session_path = group_path / Path(s)
+            processed_session_path = processed_group_path / Path(s)
+
+            pottery_keys = os.listdir(session_path)
+            unique_pottery_keys.update(pottery_keys)
+            for p in pottery_keys:
+                has_error = False
+                data_paths = {}
+                pottery_path = session_path / Path(p)
+                processed_pottery_path = processed_session_path / Path(p)
+
+                pointcloud_path = pottery_path / Path("pointcloud.csv")
+                qa_path = pottery_path / Path("qa.csv")
+                model_path = pottery_path / Path("model.obj")
+                voice_path = pottery_path / Path("session_audio_0.wav")
+
+                output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}.png"
+                output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}.ply"
+                output_heatmap = processed_pottery_path / f"{eg_heatmap_filename}.ply"
+                output_voxel = processed_pottery_path / f"{voxel_filename}.ply"
+                output_qa_pc = processed_pottery_path / f"{qa_pc_filename}.ply"
+                output_segmented_meshes_dir = processed_pottery_path / segmented_meshes_dirname
+                output_combined_qa_mesh_file = processed_pottery_path / f"{combined_qa_mesh_filename}.ply"
+                output_voice = processed_pottery_path / f"{processed_voice_filename}.wav"
+
+                # Check if paths exist and increment error
+                if Path(model_path).exists():
+                    data_paths['model'] = str(model_path)
+                    if Path(pointcloud_path).exists():
+                        data_paths['pointcloud'] = str(pointcloud_path)
+                        data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
+                        data_paths[sanity_plot_filename] = str(output_sanity_plot)
+                        data_paths[eg_pointcloud_filename] = str(output_point_cloud)
+                        data_paths[eg_heatmap_filename] = str(output_heatmap)
+                        data_paths[voxel_filename] = str(output_voxel)
+                    else:
+                        has_error = True
+                        errors = increment_error('Point cloud path does not exist', str(pointcloud_path), errors)
+
+                    if Path(qa_path).exists():
+                        data_paths['qa'] = str(qa_path)
+                        data_paths['QA_SIZE_KB'] = os.path.getsize(qa_path)/1024
+                        data_paths[qa_pc_filename] = str(output_qa_pc)
+                        data_paths[segmented_meshes_dirname] = str(output_segmented_meshes_dir)
+                        data_paths[combined_qa_mesh_filename] = str(output_combined_qa_mesh_file)
+                    else:
+                        has_error = True
+                        errors = increment_error('QNA path does not exist', str(qa_path), errors)
+                else:
+                    has_error = True
+                    errors = increment_error('Model path does not exist', str(model_path), errors)
+
+                if Path(voice_path).exists():
+                    data_paths['voice'] = str(voice_path)
+                    data_paths[processed_voice_filename] = str(output_voice)
+                else:
+                    has_error = True
+                    errors = increment_error('Voice path does not exist', str(voice_path), errors)
+
+                if (not has_error or mode==1):
+                    data_paths['GROUP'] = g
+                    data_paths['SESSION_ID'] = s
+                    data_paths['ID'] = p
+                    data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                    data.append(data_paths)
+
+    n_valid_data = len(data)
+
+    # Filtering based on pointcloud, qa size and voice quality
+    print("\nFILTERING")
+    if from_tracking_sheet:
+        if not Path(tracking_sheet_path).exists():
+            from_tracking_sheet = False
+            raise(ValueError(f"Tracking sheet at {tracking_sheet_path} does not exist."))
+
+    if min_voice_quality > 0.0 and not (from_tracking_sheet and Path(tracking_sheet_path).exists()):
+        raise(ValueError(f"To filter with voice quality, a tracking sheet is needed"))
+
+    # Filter from tracking sheet
+    n_filtered_from_tracking_sheet = 0
+    if from_tracking_sheet:
+        tracking_sheet = pd.read_csv(tracking_sheet_path, header=0)
+        tracking_sheet = tracking_sheet[tracking_sheet.get('VOICE_QUALITY_0_TO_5') > min_voice_quality]
+        unique_groups = np.unique(tracking_sheet.get('GROUP'))
+        unique_session = np.unique(tracking_sheet.get('SESSION_ID'))
+        unique_pottery_id = [f"{pid}({ASSIGNED_NUMBERS_DICT[pid]})" for pid in np.unique(tracking_sheet['ID'])]
+        keep_data_index = np.array(np.zeros(len(data)), dtype=bool)
+
+        for i, data_paths in enumerate(tqdm(data)):
+            if data_paths['GROUP'] in unique_groups \
+                and data_paths['SESSION_ID'] in unique_session \
+                and data_paths['ID'] in unique_pottery_id:
+                keep_data_index[i] = True
+
+        data = np.array(data)[keep_data_index]
+        n_filtered_from_tracking_sheet = n_valid_data - len(data)
+
+    # Filter from parameters
+    n_filtered_from_parameters = 0
+    if len(groups) > 0: unique_group_keys = list(unique_group_keys & set(groups))
+    unique_group_keys = list(unique_group_keys)
+    if len(session_ids) > 0: unique_session_keys = list(unique_session_keys & set(session_ids))
+    unique_session_keys = list(unique_session_keys)
+    if len(pottery_ids) > 0: unique_pottery_keys = list(unique_pottery_keys & set(pottery_ids))
+    unique_pottery_keys = list(unique_pottery_keys)
+    keep_data_index = np.array(np.zeros(len(data)), dtype=bool)
+
+    for i, data_paths in enumerate(tqdm(data)):
+        if data_paths['GROUP'] in unique_group_keys \
+            and data_paths['SESSION_ID'] in unique_session_keys \
+            and data_paths['ID'] in unique_pottery_keys \
+            and data_paths['POINTCLOUD_SIZE_KB'] >= min_pointcloud_size \
+            and data_paths['QA_SIZE_KB'] >= min_qa_size:
+            keep_data_index[i] = True
+
+    data = np.array(data)[keep_data_index]
+    n_filtered_from_parameters = n_valid_data - n_filtered_from_tracking_sheet - len(data)
+
+    # Finalizing the data paths
+    # Preprocessed
     if (preprocess):
+        for data_paths in tqdm(data):
+            os.makedirs(data_paths['processed_pottery_path'], exist_ok=True)
+
+            # Eye gaze intensity point cloud & heatmap
+            if use_cache and Path(data_paths[eg_pointcloud_filename]).exists() and Path(data_paths[eg_heatmap_filename]).exists():
+                pass
+            else:
+                eye_gaze_pointcloud, eye_gaze_heatmap_mesh = generate_gaze_pointcloud_heatmap(
+                    input_file=data_paths['pointcloud'],
+                    model_file=data_paths['model'],
+                    cmap=cmap,
+                    base_color=base_color,
+                    hololens_2_spatial_error=hololens_2_spatial_error,
+                    gaussian_denominator=GAUSSIAN_DENOMINATOR
+                )
+                active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
+                active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_filename], eye_gaze_heatmap_mesh, error_queue))
+
+            # QNA combined point cloud
+            # QNA segmented mesh
+            if use_cache and Path(data_paths[qa_pc_filename]).exists() and Path(data_paths[segmented_meshes_dirname]).exists():
+                pass
+            else:
+                qa_pointcloud, qa_segmented_mesh = process_questionnaire_answeres(
+                    input_file=data_paths['pointcloud'],
+                    model_file=data_paths['model'],
+                    base_color=base_color,
+                    hololens_2_spatial_error=hololens_2_spatial_error,
+                    gaussian_denominator=GAUSSIAN_DENOMINATOR
+                )
+                active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
+
+                os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
+                for k in qa_segmented_mesh.keys():
+                    segmented_mesh = qa_segmented_mesh[k]
+                    individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
+                    active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
+
+            # Voice
+            if use_cache and Path(data_paths[processed_voice_filename]).exists():
+                pass
+            else:
+                waveform, sample_rate = process_voice_data(data_paths['voice'])
+                torchaudio.save(data_paths[processed_voice_filename], waveform, sample_rate)
+
+    # In-time processing, only return path to raw data
+    else:
+        pass
+
+    for t in active_threads:
+        t.join()
+
+    try:
+        # Pull all available errors from the queue without blocking
+        while True:
+            error_list = error_queue.get_nowait()
+            for dictionary in error_list:
+                for key, val in dictionary.items():
+                    increment_error(key, val, errors)
+    except queue.Empty:
         pass
 
     if (generate_report):
-        generate_report(
+        generate_filtered_dataset_report(
             errors=errors,
+            mode=mode,
+            hololens_2_spatial_error=hololens_2_spatial_error,
+            base_color=base_color,
             groups=groups,
             session_ids=session_ids,
             pottery_ids=pottery_ids,
@@ -268,278 +537,46 @@ def filter_data_on_condition(
             min_voice_quality=min_voice_quality,
             from_tracking_sheet=from_tracking_sheet,
             tracking_sheet_path=tracking_sheet_path,
+            n_filtered_from_tracking_sheet=n_filtered_from_tracking_sheet,
+            n_filtered_from_parameters=n_filtered_from_parameters,
+            n_valid_data=n_valid_data,
+            filtered_data=data,
         )
 
-    return data
-
+    return data, errors
+# yapf: enable
 
 ### PROCESS DATA ###
 
 
-def create_gaze_intensity_point_cloud(
-    input_file,
-    ball_radius=DEFAULT_BALL_RADIUS,
-    CMAP=DEFAULT_CMAP,
-):
-    """
-    Creates a point cloud from xyz data in CSV file,
-    coloring points based on their normalized intensity using a KD-tree for radius search.
-
-    Args:
-        input_file (str): Path to the input CSV file containing point cloud data
-        ball_radius (float): Radius of the sphere used for neighborhood search
-
-    Returns:
-        pcd: The created Open3D point cloud object
-    """
-    data = pd.read_csv(input_file, header=None, skiprows=1).to_numpy()
-
-    positions = data[:, :3]  # Only xyz
-
-    # Create an Open3D point cloud object
-    # Open3D docs: https://www.open3d.org/docs/latest/python_api/open3d.geometry.PointCloud.html
-    pcd = o3d.geometry.PointCloud()
-
-    # PointCloud.points accepts float64 of c=shape (num_points, 3)
-    # Vector3dVector converts float64 numpy array of shape (n, 3) to Open3D format
-    # Vector3dVector docs: https://www.open3d.org/docs/release/python_api/open3d.utility.Vector3dVector.html
-    pcd.points = o3d.utility.Vector3dVector(positions)
-
-    # Calculate intensity
-    normalized_intensity = calculate_normalized_point_intensity(
-        pcd, ball_radius)
-
-    # Get color based on normalized intensity
-    colors = CMAP(normalized_intensity)[:, :3]
-    pcd.colors = o3d.utility.Vector3dVecctor(colors)
-
-    return pcd
-
-
-# yapf: disable
-def create_gaze_intensity_heatmap_mesh(
+def generate_gaze_pointcloud_heatmap(
     input_file,
     model_file,
-    ball_radius = DEFAULT_BALL_RADIUS,
-    # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
-    # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
-    HOLOLENS_2_SPATIAL_ERROR = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
-    BASE_COLOR = DEFAULT_BASE_COLOR,
-    CMAP = DEFAULT_CMAP,
+    cmap,
+    base_color,
+    hololens_2_spatial_error,
+    gaussian_denominator,
 ):
-    """
-    Create a heatmap on a provided 3D mesh model based on the intensity
-    of the input points (eye gaze point cloud), using a gaussian adjusted intensity
-    for region coloring.
-
-    Args:
-        input_file (str): Path to the input CSV file containing point cloud data
-        model_file (str): Path to the input OBJ/PLY model file
-        ball_radius (float): Radius of the sphere used for neighborhood search
-        HOLOLENS_2_SPATIAL_ERROR (float): The spatial accuracy / error of HoloLens 2. Reference: https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]. Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
-        BASE_COLOR (tuple): Background color of the heatmap mesh for vertex that do not have gaze points
-        CMAP (plt.Colormap): Heatmap color scheme. DEFAULT_CMAP = plt.get_cmap('jet')
-    
-    Returns:
-        mesh: The created Open3D mesh object
-    """
-    SD_2_SQUARED_SPATIAL_ACCURACY = (2 * HOLOLENS_2_SPATIAL_ERROR)**2
-
-    data = pd.read_csv(input_file, header=None, skiprows=1).to_numpy()
-
-    positions = data[:, :3]  # Only xyz
-
-    # Create an Open3D point cloud object
-    # Open3D docs: https://www.open3d.org/docs/latest/python_api/open3d.geometry.PointCloud.html
-    pcd = o3d.geometry.PointCloud()
-
-    # PointCloud.points accepts float64 of c=shape (num_points, 3)
-    # Vector3dVector converts float64 numpy array of shape (n, 3) to Open3D format
-    # Vector3dVector docs: https://www.open3d.org/docs/release/python_api/open3d.utility.Vector3dVector.html
-    pcd.points = o3d.utility.Vector3dVector(positions)
-
-    # Calculate intensity
-    normalized_intensity = calculate_normalized_point_intensity(pcd, ball_radius)
-
-    # Load the mesh (OBJ or PLY) to apply the normalized intensity to
-    mesh = o3d.io_read_triangle_mesh(model_file)
-    vertices = np.asarray(mesh.vertices)
-    n_vertices = vertices.shape[0]
-
-    # Build KD-Tree for efficient radius search
-    # Color the mesh based on normalized intensity with a circular interpolation
-    # Modify radius later based on the eye gaze error / range
-    kdtree = o3d.geometry.KDTreeFlann(pcd)
-    colors_intensity = np.zeros(n_vertices)
-    colors = np.zeros((n_vertices, 3))
-
-    # Find points on model mesh that are close to the eye gaze intensity point cloud
-    for i, vertex in enumerate(vertices):
-        [k, idx, _] = kdtree.search_radius_vector_3d(vertex, HOLOLENS_2_SPATIAL_ERROR)
-
-        if idx:
-            # Calculate the gaussian adjusted intensity of each vertex based on nearby points within radius
-            #
-            #                               n(points in radius)                         squared_euclidean_distance
-            # gaussian_adjusted_intensity =        SUM          weight_of_point * e ^ - _____________________________
-            #                                     i = 1                                 SD_2_SQUARED_SPATIAL_ACCURACY
-            #
-            # SD_2_SQUARED_SPATIAL_ACCURACY = (2 * HOLOLENS_2_SPATIAL_ERROR) ^ 2
-            #
-            # Then, get the average intensity and assign to the colors_intensity list
-            # After all aggregation are done, normalize the colors_intensity
-            # Map to the CMAP color table
-            gaussian_adjusted_intensities = []
-            for point_index in idx:
-                # Get the squared euclidean distance
-                # Since square root will be canceled by the square operation of gaussian adjusted weight calculation
-                difference_vector = vertex - positions[point_index]
-                squared_euclidean_distance = np.sum(difference_vector**2)
-                gaussian_adjusted_intensity = normalized_intensity[point_index] * np.exp(-squared_euclidean_distance / SD_2_SQUARED_SPATIAL_ACCURACY)
-                gaussian_adjusted_intensities.append(gaussian_adjusted_intensity)
-            gaussian_adjusted_intensities = np.array(gaussian_adjusted_intensities)
-            colors_intensity[i] = np.average(gaussian_adjusted_intensities)
-
-    # Normalize the gaussian adjusted intensities
-    colors_max = np.max(colors_intensity)
-    colors_min = np.min(colors_intensity)
-    normalized_colors_weights = (colors_intensity - colors_min) / (colors_max - colors_min)
-
-    # Map to the CMAP color table
-    for i in range(n_vertices):
-        if (normalized_colors_weights[i] == 0):
-            colors[i, :] = BASE_COLOR
-        else:
-            colors[i, :] = CMAP(normalized_colors_weights[i])[:3]
-
-    mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
-
-    return mesh
-    # yapf: enable
+    pass
 
 
-#yapf: disable
-def create_qna_segmentation_mesh(
+def generate_voxel_from_mesh(
+    mesh,
+    vertex_intensities,
+    cmap,
+    base_color,
+):
+    pass
+
+
+def process_questionnaire_answeres(
     input_file,
     model_file,
-    association_radius = DEFAULT_BALL_RADIUS,
-    QNA_ANSEWR_COLOR_MAP = DEFAULT_QNA_ANSEWR_COLOR_MAP,
-    BASE_COLOR = DEFAULT_BASE_COLOR,
+    base_color,
+    hololens_2_spatial_error,
+    gaussian_denominator,
 ):
-    """
-    Assigns specific colors and color names based on predefined answer choices,
-    segmented meshes for each answer category by answers. For combined mesh reference
-    the original processing script. However, some data is lost during combination into 3 channels,
-    it is prefered to combine the different answers into more channels later.
-
-    Args:
-        input_file (str): Path to the input CSV file containing point cloud data
-        model_file (str): Path to the input OBJ/PLY model file
-        association_radius (float): Radius of the sphere used to assign region and search for nearby QNA answers
-        BASE_COLOR (tuple): Background color of the heatmap mesh for vertex that do not have gaze points
-        QNA_ANSEWR_COLOR_MAP (dict): The QNA asnwers, rbg color, color name. DEFAULT_QNA_ANSEWR_COLOR_MAP = {
-            "面白い・気になる形だ": {
-                "rgb": [255, 165, 0],
-                "name": "Orange"
-            },
-            "美しい・芸術的だ": {
-                "rgb": [0, 128, 0],
-                "name": "Green"
-            },
-            "不思議・意味不明": {
-                "rgb": [128, 0, 128],
-                "name": "Purple"
-            },
-            "不気味・不安・怖い": {
-                "rgb": [255, 0, 0],
-                "name": "Red"
-            },
-            "何も感じない": {
-                "rgb": [255, 255, 0],
-                "name": "Yellow"
-            },
-        }
-
-    Returns:
-        pcd: The created Open3D point cloud object
-        segmented_mesh_dict: {answer: Open3D mesh object} pairs
-    """
-    if not os.path.exists(input_file):
-        print(
-            f"Error: QNA file '{input_file}' not found. Cannot perform operations."
-        )
-        return None
-    df = pd.read_csv(input_file, sep=',', header=0)
-
-    df['estX'] = pd.to_numeric(df['estX'], errors='coerce')
-    df['estY'] = pd.to_numeric(df['estY'], errors='coerce')
-    df['estZ'] = pd.to_numeric(df['estZ'], errors='coerce')
-    df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-
-    df['answer'] = df['answer'].astype(str).str.strip()
-
-    df = df.dropna(subset=['estX', 'estY', 'estZ', 'answer', 'timestamp'])
-
-    assigned_colors_01 = []  # Store as 0-1 for Open3D PLY
-    for answer_text in df['answer']:
-        if answer_text in QNA_ANSEWR_COLOR_MAP:
-            assigned_colors_01.append(np.array(QNA_ANSEWR_COLOR_MAP[answer_text]["rgb"]) / 255.0)
-        else:
-            assigned_colors_01.append(BASE_COLOR / 255.0)
-
-    positions = df[['estX', 'estY', 'estZ']].values.astype(np.float64)
-
-    # Create QNA Point Cloud
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(positions)
-    pcd.colors = o3d.utility.Vector3dVector(np.array(assigned_colors_01))
-
-    # Create QNA Combined Mesh
-    if not os.path.exists(model_file):
-        print(
-            f"Error: Base model file '{model_file}' not found. Cannot perform mesh operations."
-        )
-        return None
-
-    mesh = o3d.io.read_triangle_mesh(model_file)
-    vertices = np.asarray(mesh.vertices)
-
-    segmented_mesh_dict = {}
-    unique_answers = df['answer'].unique()
-
-    for answer_category in unique_answers:
-        category_df = df[df['answer'] == answer_category]
-        if category_df.empty:
-            continue
-
-        category_gaze_positions = category_df[['estX', 'estY', 'estZ']].values.astype(np.float64)
-        if len(category_gaze_positions) == 0:
-            continue
-
-        pcd_category_gaze = o3d.geometry.PointCloud()
-        pcd_category_gaze.points = o3d.utility.Vector3dVector(category_gaze_positions)
-
-        # Create a KDTree for the gaze points of this category
-        category_tree = o3d.geometry.KDTreeFlann(pcd_category_gaze)
-
-        category_rgb_01 = np.array(QNA_ANSEWR_COLOR_MAP[answer_category]["rgb"]) / 255.0
-
-        # Create a copy of the base mesh for this segment
-        segmented_mesh = o3d.geometry.TriangleMesh(mesh)
-        segmented_mesh.paint_uniform_color(BASE_COLOR)
-
-        mesh_vertex_colors = np.asarray(segmented_mesh.vertex_colors)
-        for i, vertex in enumerate(vertices):
-            [k, idx, _] = category_tree.search_radius_vector_3d(vertex, association_radius)
-
-            if idx:
-                mesh_vertex_colors[i] = category_rgb_01
-
-        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(mesh_vertex_colors)
-        segmented_mesh_dict[answer_category] = segmented_mesh
-
-    return pcd, segmented_mesh_dict
-    # yapf: enable
+    pass
 
 
 def process_voice_data(input_file):
@@ -576,3 +613,437 @@ def visualize_geometry(geometry, point_size=1.0):
     render_options.background_color = np.asarray([0.1, 0.1, 0.1])
     vis.run()
     vis.destroy_window()
+
+
+def analyze_and_plot_point_cloud(csv_file_path, output_plot_path, error_queue):
+    """
+    Reads a CSV file with 3D point data, counts occurrences, and saves a 3D scatter plot.
+    """
+    df = pd.read_csv(csv_file_path, header=0, usecols=[0, 1, 2])
+    df.columns = ['x', 'y', 'z']
+
+    if df.empty:
+        return
+
+    df['x'] = pd.to_numeric(df['x'], errors='coerce')
+    df['y'] = pd.to_numeric(df['y'], errors='coerce')
+    df['z'] = pd.to_numeric(df['z'], errors='coerce')
+    df.dropna(inplace=True)
+
+    if df.empty:
+        return
+
+    point_counts = df.groupby(['x', 'y', 'z']).size().reset_index(name='count')
+
+    fig = plt.figure(figsize=(12, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Swap Z and Y to retain upright orientation
+    scatter = ax.scatter(
+        point_counts['x'],
+        point_counts['z'],  # Z is now plotted on the Y-axis of the plot
+        point_counts['y'],  # Y is now plotted on the Z-axis of the plot
+        c=point_counts['count'],
+        s=point_counts['count'] * 5 + 10,
+        cmap='viridis',
+        alpha=0.8,
+        edgecolors='k',
+        linewidth=0.5,
+    )
+
+    ax.set_title(
+        '3D Distribution of Gaze Points (Colored by Occurrence Count)')
+    ax.set_xlabel('X Coordinate')
+    ax.set_ylabel('Z Coordinate')
+    ax.set_zlabel('Y Coordinate')
+    cbar = fig.colorbar(scatter, shrink=0.6, aspect=20, pad=0.1)
+    cbar.set_label('Occurrence Count')
+
+    ax.view_init(elev=30, azim=-45)
+
+    try:
+        max_range = np.array([
+            df['x'].max() - df['x'].min(),
+            df['y'].max() - df['y'].min(),
+            df['z'].max() - df['z'].min(),
+        ]).max()
+        mid_x = (df['x'].max() + df['x'].min()) * 0.5
+        mid_y = (df['y'].max() + df['y'].min()) * 0.5
+        mid_z = (df['z'].max() + df['z'].min()) * 0.5
+        ax.set_xlim(mid_x - max_range * 0.5, mid_x + max_range * 0.5)
+        ax.set_ylim(mid_z - max_range * 0.5, mid_z +
+                    max_range * 0.5)  # Y-axis of plot gets Z-data limits
+        ax.set_zlim(mid_y - max_range * 0.5, mid_y +
+                    max_range * 0.5)  # Z-axis of plot gets Y-data limits
+    except ValueError:
+        print("Could not determine axis range automatically.")
+    ax.grid(True)
+
+    # Move the plot saving to a separate thread
+    plot_thread = threading.Thread(target=save_plot_threaded,
+                                   args=(fig, output_plot_path, error_queue))
+    plot_thread.daemon = True
+
+
+### PDF Report | AI Generated Visualization Functions ###
+
+
+def _create_cmap_image(cmap, width=1.5 * inch, height=0.2 * inch):
+    """Generates an image of a matplotlib colormap in an in-memory buffer."""
+    fig, ax = plt.subplots(figsize=(width / inch, height / inch))
+    gradient = np.linspace(0, 1, 256).reshape(1, -1)
+    ax.imshow(gradient, aspect='auto', cmap=cmap)
+    ax.set_axis_off()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def _generate_analysis_plots(data: np.ndarray,
+                             tracking_sheet_path: str = None):
+    """
+    Uses pandas and matplotlib to generate quantitative analysis plots.
+    Returns a list of in-memory image buffers.
+    """
+    if data.size == 0:
+        return []
+
+    try:
+        df = pd.DataFrame(list(data))
+    except Exception:
+        return []
+
+    plots = []
+
+    # --- Plot 1: Count of Pottery ---
+    try:
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax = plt.subplots(figsize=(11, 4))
+        id_counts = df['ID'].value_counts().sort_index()
+        id_counts.plot(kind='bar', ax=ax, color='steelblue', zorder=2)
+        ax.set_title('Count of Data Instances per Pottery ID', fontsize=14)
+        ax.set_ylabel('Count', fontsize=10)
+        ax.set_xlabel('Pottery ID', fontsize=10)
+        plt.xticks(rotation=90, fontsize=8)
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=150)
+        buf.seek(0)
+        plots.append({'title': 'Instance Count Distribution', 'buffer': buf})
+        plt.close(fig)
+    except Exception:
+        pass
+
+    # --- Plot 2: Average Data Sizes ---
+    try:
+        fig, ax = plt.subplots(figsize=(11, 4))
+        avg_sizes = df.groupby('ID')[['POINTCLOUD_SIZE_KB',
+                                      'QA_SIZE_KB']].mean().round(2)
+        avg_sizes.plot(kind='bar', ax=ax, zorder=2)
+        ax.set_title('Average Data Size per Pottery ID', fontsize=14)
+        ax.set_ylabel('Average Size (KB)', fontsize=10)
+        ax.set_xlabel('Pottery ID', fontsize=10)
+        ax.legend(['PointCloud', 'Q&A'])
+        plt.xticks(rotation=90, fontsize=8)
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=150)
+        buf.seek(0)
+        plots.append({
+            'title': 'Average Data Size Distribution',
+            'buffer': buf
+        })
+        plt.close(fig)
+    except Exception:
+        pass
+
+    # --- Plot 3: Average Voice Quality ---
+    if tracking_sheet_path and Path(tracking_sheet_path).exists():
+        try:
+            tracking_df = pd.read_csv(tracking_sheet_path)
+            df['SESSION_KEY'] = df['GROUP'] + '_' + df[
+                'SESSION_ID'] + '_' + df['ID']
+            tracking_df[
+                'SESSION_KEY'] = tracking_df['GROUP'] + '_' + tracking_df[
+                    'SESSION_ID'] + '_' + tracking_df['ID']
+            merged_df = pd.merge(
+                df,
+                tracking_df[['SESSION_KEY', 'VOICE_QUALITY_0_TO_5']],
+                on='SESSION_KEY',
+                how='left')
+
+            if not merged_df['VOICE_QUALITY_0_TO_5'].dropna().empty:
+                fig, ax = plt.subplots(figsize=(11, 4))
+                voice_quality = merged_df.groupby(
+                    'ID')['VOICE_QUALITY_0_TO_5'].mean().round(2)
+                voice_quality.plot(kind='bar', ax=ax, color='teal', zorder=2)
+                ax.set_title('Average Voice Quality per Pottery ID',
+                             fontsize=14)
+                ax.set_ylabel('Average Quality (0-5)', fontsize=10)
+                ax.set_xlabel('Pottery ID', fontsize=10)
+                plt.xticks(rotation=90, fontsize=8)
+                plt.tight_layout()
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150)
+                buf.seek(0)
+                plots.append({
+                    'title': 'Average Voice Quality Distribution',
+                    'buffer': buf
+                })
+                plt.close(fig)
+        except Exception as e:
+            print(f"Could not generate 'Voice Quality' plot: {e}",
+                  file=sys.stderr)
+
+    return plots
+
+
+def generate_filtered_dataset_report(
+    errors: dict = {},
+    mode: int = 0,
+    hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    base_color: List = DEFAULT_BASE_COLOR,
+    cmap=DEFAULT_CMAP,
+    groups: List = [],
+    session_ids: List = [],
+    pottery_ids: List = [],
+    min_pointcloud_size: float = 0.0,
+    min_qa_size: float = 0.0,
+    min_voice_quality: float = 0.0,
+    from_tracking_sheet: bool = False,
+    tracking_sheet_path: str = "",
+    n_filtered_from_tracking_sheet: int = 0,
+    n_filtered_from_parameters: int = 0,
+    n_valid_data: int = 0,
+    filtered_data: List[dict] = [],
+    output_dir: str = ".",
+):
+    """
+    Generates a PDF report summarizing the data filtering process,
+    including quantitative analysis plots.
+    """
+    report_path = os.path.join(output_dir,
+                               "filtering_and_processing_report.pdf")
+    doc = SimpleDocTemplate(report_path)
+    story = []
+    styles = getSampleStyleSheet()
+
+    # --- Define Styles ---
+    title_style = ParagraphStyle('Title',
+                                 parent=styles['h1'],
+                                 fontSize=18,
+                                 alignment=TA_CENTER,
+                                 spaceAfter=18)
+    heading_style = ParagraphStyle('Heading2',
+                                   parent=styles['h2'],
+                                   fontSize=14,
+                                   spaceAfter=12)
+    body_style = styles['Normal']
+
+    # --- 1. Title ---
+    story.append(Paragraph("Data Filtering and Processing Report",
+                           title_style))
+    story.append(Spacer(1, 0.2 * inch))
+
+    # --- 2. Summary & Parameters (Combined for brevity) ---
+    # --- Summary Section ---
+    story.append(Paragraph("1. Summary", heading_style))
+    final_count = n_valid_data - n_filtered_from_tracking_sheet - n_filtered_from_parameters
+    summary_data = [
+        ['Initial Datasets Found:',
+         str(n_valid_data)],
+        ['Filtered by Tracking Sheet:',
+         str(n_filtered_from_tracking_sheet)],
+        ['Filtered by Parameters:',
+         str(n_filtered_from_parameters)],
+        ['Final Datasets for Processing:',
+         str(final_count)],
+    ]
+    summary_table = Table(summary_data, colWidths=[2.5 * inch, 2.5 * inch])
+    summary_table.setStyle(
+        TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 3), (0, 3), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
+        ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.25 * inch))
+
+    # --- Filtering Parameters Section ---
+    story.append(Paragraph("2. Filtering Parameters", heading_style))
+
+    def format_list(items):
+        return ", ".join(map(str, items)) if items else "Not specified"
+
+    # Create a small colored box for the base_color
+    base_color_box = Drawing(20, 10)
+    base_color_box.add(
+        Rect(0,
+             0,
+             40,
+             10,
+             fillColor=colors.Color(*base_color),
+             strokeColor=None))
+    base_color_display = Table(
+        [[Paragraph(str(base_color), body_style), base_color_box]],
+        colWidths=[1.0 * inch, None])
+    base_color_display.setStyle(
+        TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+
+    # Create an image of the colormap
+    cmap_image_buffer = _create_cmap_image(cmap)
+    cmap_display = Table([[
+        Paragraph(f"'{cmap.name}'", body_style),
+        Image(cmap_image_buffer, width=1.5 * inch, height=0.2 * inch)
+    ]],
+                         colWidths=[0.7 * inch, 1.6 * inch])
+    cmap_display.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+
+    params_data = [
+        ['Mode:', 'Linient' if mode == 1 else 'Strict'],
+        ['HoloLens 2 Spatial Error:', f"{hololens_2_spatial_error}°"],
+        ['Base Color:', base_color_display],  # <-- Visual element
+        ['Colormap:', cmap_display],  # <-- Visual element
+        ['Filter by Tracking Sheet:', 'Yes' if from_tracking_sheet else 'No'],
+        [
+            'Tracking Sheet Path:',
+            Paragraph(tracking_sheet_path, body_style)
+            if from_tracking_sheet else 'N/A'
+        ],
+        [
+            'Min Voice Quality (0-5):',
+            str(min_voice_quality) if from_tracking_sheet else 'N/A'
+        ],
+        ['Min Point Cloud Size (KB):',
+         str(min_pointcloud_size)],
+        ['Min Q&A Size (KB):', str(min_qa_size)],
+        ['Groups:', Paragraph(format_list(groups), body_style)],
+        ['Session IDs:',
+         Paragraph(format_list(session_ids), body_style)],
+        ['Pottery IDs:',
+         Paragraph(format_list(pottery_ids), body_style)],
+    ]
+
+    params_table = Table(params_data, colWidths=[2.0 * inch, 3.0 * inch])
+    params_table.setStyle(
+        TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+    story.append(params_table)
+    story.append(Spacer(1, 0.25 * inch))
+    story.append(PageBreak())
+
+    # --- 3. Quantitative Analysis Plots ---
+    story.append(Paragraph("2. Quantitative Analysis", heading_style))
+
+    analysis_plots = _generate_analysis_plots(filtered_data,
+                                              tracking_sheet_path)
+
+    if not analysis_plots:
+        story.append(
+            Paragraph("No analysis plots could be generated.", body_style))
+        story.append(PageBreak())
+    else:
+        plot_title_style = ParagraphStyle('PlotTitle',
+                                          parent=styles['h3'],
+                                          spaceBefore=12,
+                                          spaceAfter=4)
+        for plot_info in analysis_plots:
+            story.append(Paragraph(plot_info['title'], plot_title_style))
+
+            # 1. Get the original image buffer
+            original_buffer = plot_info['buffer']
+
+            # 2. Open the image with Pillow
+            pil_image = PILImage.open(original_buffer)
+
+            # 3. Rotate it 90 degrees. `expand=True` ensures the canvas resizes.
+            # Use COUNTERCLOCKWISE to make the y-axis appear on the left.
+            rotated_image = pil_image.rotate(90,
+                                             expand=True,
+                                             resample=PILImage.BICUBIC)
+
+            # 4. Save the new, rotated image into a new buffer
+            rotated_buffer = io.BytesIO()
+            rotated_image.save(rotated_buffer, format='PNG')
+            rotated_buffer.seek(0)
+
+            # 5. Add the rotated image to the PDF, adjusting the width to fit.
+            # Constrain the image to a bounding box of 5x8 inches.
+            # Reportlab will scale the image to fit inside this box while
+            # preserving its aspect ratio. Since the image is tall and narrow,
+            # the height=8*inch will be the limiting factor, guaranteeing it fits.
+            img = Image(rotated_buffer, width=5 * inch, height=8 * inch)
+            img.hAlign = 'CENTER'
+            story.append(img)
+            story.append(Spacer(1, 0.2 * inch))
+            story.append(PageBreak())
+
+    # --- 4. Error Report ---
+    story.append(Paragraph("3. Error Report", heading_style))
+
+    if not errors:
+        story.append(
+            Paragraph("No errors were encountered during the process.",
+                      body_style))
+    else:
+        # Define a new style for the error titles
+        error_title_style = ParagraphStyle(
+            'ErrorTitle',
+            parent=body_style,
+            fontName='Helvetica-Bold',
+            fontSize=11,
+            spaceAfter=6  # Space between the title and the table
+        )
+
+        for error_type, details in errors.items():
+            count = details['count']
+            paths = sorted(list(details['paths']))
+
+            # 1. Create the bold title with the count
+            title_text = f"{error_type} (Occurrences: {count})"
+            error_title = Paragraph(title_text, error_title_style)
+            story.append(error_title)
+
+            # 2. Create a simple, single-column table for the paths
+            # Each path is wrapped in a Paragraph to allow for automatic line wrapping
+            path_data = [[Paragraph(p, body_style)] for p in paths]
+
+            # Use the full available width of the document frame
+            # (5.5 inches is a safe width for a standard Letter/A4 page with margins)
+            path_table = Table(path_data, colWidths=[5.5 * inch])
+
+            path_table.setStyle(
+                TableStyle([
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    # Add some padding inside the cells
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+
+            story.append(path_table)
+            story.append(PageBreak())
+
+    # --- Build PDF ---
+    try:
+        doc.build(story)
+        print(f"\nSuccessfully generated report at: {report_path}")
+    except Exception as e:
+        print(f"\nFailed to generate PDF report: {e}", file=sys.stderr)
