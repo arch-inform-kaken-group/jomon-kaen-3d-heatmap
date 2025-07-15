@@ -164,6 +164,14 @@ def _calculate_smoothed_vertex_intensities(pcd_points_np, mesh):
             for v_idx in mesh_triangles_np[face_idx]:
                 raw_hit_counts[v_idx] += 1
 
+    # Log scaling improves visual detail, large numbers do not dominate the heatmap
+    # causing the difference (comparison) to be lost. i.e. difference between 1 & 10 hits
+    # and 100 & 1000 hits both are shown on the heatmap.
+    #
+    # Log scaling aligns with human perception (logarithmic)
+    # more sensitive to change at lower levels of stimulus compared to high levels.
+    #
+    # Enables the handling of wide dynamic ranges. If gaze is recorded for 5 mins, etc.
     raw_hit_counts = np.log1p(raw_hit_counts)
 
     print("Step 2/2: Applying Gaussian spread along mesh surface...")
@@ -175,15 +183,15 @@ def _calculate_smoothed_vertex_intensities(pcd_points_np, mesh):
         interpolated_heatmap_values = np.copy(raw_hit_counts)
         hit_vertices_indices = np.where(raw_hit_counts > 0)[0]
 
-        for start_node_idx in tqdm(hit_vertices_indices,
-                                desc="Spreading heatmap within HoloLens 2 Error Range"):
+        for start_node_idx in tqdm(
+                hit_vertices_indices,
+                desc="Spreading heatmap within HoloLens 2 Error Range"):
             hit_value = raw_hit_counts[start_node_idx]
-            [k, indices, dists_sq
-            ] = kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx],
-                                                HOLOLENS_2_SD_ERROR)
+            [k, indices, euclidean_dist] = kdtree.search_radius_vector_3d(
+                mesh_vertices_np[start_node_idx], HOLOLENS_2_SD_ERROR)
             if k > 1:
-                gaussian_weights = np.exp(-np.asarray(dists_sq) /
-                                        GAUSSIAN_SPREAD_DENOMINATOR)
+                gaussian_weights = np.exp(-np.asarray(euclidean_dist)**2 /
+                                          GAUSSIAN_SPREAD_DENOMINATOR)
                 for i, neighbor_idx in enumerate(indices):
                     if neighbor_idx != start_node_idx:
                         interpolated_heatmap_values[
@@ -202,9 +210,8 @@ def _calculate_smoothed_vertex_intensities(pcd_points_np, mesh):
         interpolated_heatmap_values = np.zeros(n_vertices, dtype=np.float64)
         hit_vertices_indices = np.where(raw_hit_counts > 0)[0]
 
-        for start_node_idx in tqdm(
-            hit_vertices_indices, desc="Spreading heatmap via BFS"
-        ):
+        for start_node_idx in tqdm(hit_vertices_indices,
+                                   desc="Spreading heatmap via BFS"):
             hit_value = raw_hit_counts[start_node_idx]
             start_pos = mesh_vertices_np[start_node_idx]
 
@@ -218,18 +225,15 @@ def _calculate_smoothed_vertex_intensities(pcd_points_np, mesh):
                 for neighbor_idx in vertex_adjacency[current_idx]:
                     if neighbor_idx not in visited:
                         dist_from_start = np.linalg.norm(
-                            mesh_vertices_np[neighbor_idx] - start_pos
-                        )
+                            mesh_vertices_np[neighbor_idx] - start_pos)
                         if dist_from_start <= HOLOLENS_2_SD_ERROR:
                             visited.add(neighbor_idx)
                             q.append(neighbor_idx)
                             distance_sq = dist_from_start**2
                             gaussian_weight = np.exp(
-                                -distance_sq / GAUSSIAN_SPREAD_DENOMINATOR
-                            )
+                                -distance_sq / GAUSSIAN_SPREAD_DENOMINATOR)
                             interpolated_heatmap_values[
-                                neighbor_idx
-                            ] += hit_value * gaussian_weight
+                                neighbor_idx] += hit_value * gaussian_weight
 
     return interpolated_heatmap_values, point_to_face_map
 
@@ -274,10 +278,15 @@ def generate_gaze_visualizations(input_file,
 
     # --- Generate Intensity-Colored Point Cloud ---
     mesh_triangles_np = np.asarray(mesh.triangles)
-    final_point_intensities = np.array([
-        np.mean(final_vertex_intensities[mesh_triangles_np[face_idx]])
-        for face_idx in point_to_face_map
-    ])
+    # final_point_intensities = np.array([
+    #     np.mean(final_vertex_intensities[mesh_triangles_np[face_idx]])
+    #     for face_idx in point_to_face_map
+    # ])
+    final_point_intensities = []
+    for face_idx in point_to_face_map:
+        final_point_intensities.append(
+            np.mean(final_vertex_intensities[mesh_triangles_np[face_idx]]))
+    final_point_intensities = np.array(final_point_intensities)
 
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pcd_points_np))
     max_val_pc = np.max(final_point_intensities)
@@ -295,10 +304,12 @@ def generate_gaze_visualizations(input_file,
     return active_threads, mesh, final_vertex_intensities
 
 
-def generate_voxel_from_mesh(mesh,
-                                     vertex_intensities,
-                                     output_voxel_ply_file,
-                                     visualize=False):
+def generate_voxel_from_mesh(
+    mesh,
+    vertex_intensities,
+    output_voxel_ply_file,
+    visualize=False,
+):
     """
     Generates a voxel representation by rasterizing mesh triangles, creating voxels
     for the entire surface with smoothly interpolated intensities.
@@ -450,10 +461,11 @@ def process_questionnaire_answers(
     print("Generating raw answer-colored point cloud...")
     qa_points = df[['estX', 'estY', 'estZ']].values
     qa_colors_01 = [
-        np.array(ANSWER_COLOR_MAP.get(ans, {"rgb": DEFAULT_COLOR_RGB})["rgb"]) / 255.0
-        for ans in df['answer']
+        np.array(ANSWER_COLOR_MAP.get(ans, {"rgb": DEFAULT_COLOR_RGB})["rgb"])
+        / 255.0 for ans in df['answer']
     ]
-    qa_pcd = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(qa_points))
+    qa_pcd = o3d.geometry.PointCloud(
+        points=o3d.utility.Vector3dVector(qa_points))
     qa_pcd.colors = o3d.utility.Vector3dVector(np.array(qa_colors_01))
     save_geometry_threaded(output_qa_pointcloud_file, qa_pcd)
 
@@ -464,8 +476,8 @@ def process_questionnaire_answers(
 
     mesh_triangle_centroids = mesh_vertices_np[mesh_triangles_np].mean(axis=1)
     mesh_centroid_kdtree = o3d.geometry.KDTreeFlann(
-        o3d.geometry.PointCloud(o3d.utility.Vector3dVector(mesh_triangle_centroids))
-    )
+        o3d.geometry.PointCloud(
+            o3d.utility.Vector3dVector(mesh_triangle_centroids)))
 
     vertex_adjacency = {i: set() for i in range(n_vertices)}
     for v0, v1, v2 in mesh_triangles_np:
@@ -475,7 +487,7 @@ def process_questionnaire_answers(
 
     final_colors = np.zeros((n_vertices, 3), dtype=float)
     total_weights = np.zeros(n_vertices, dtype=float)
-    
+
     # --- OPTIMIZATION APPLIED HERE ---
     # Pre-calculate squared values to avoid square roots in the loops
     feature_size_sq = feature_size**2
@@ -492,14 +504,19 @@ def process_questionnaire_answers(
         color_vec = np.array(color_info["rgb"]) / 255.0
         hit_vertices = set()
 
-        for point in tqdm(category_points, desc=f"Mapping '{answer}' points", leave=False):
-            [k, idx_list, _] = mesh_centroid_kdtree.search_knn_vector_3d(point, 1)
+        for point in tqdm(category_points,
+                          desc=f"Mapping '{answer}' points",
+                          leave=False):
+            [k, idx_list,
+             _] = mesh_centroid_kdtree.search_knn_vector_3d(point, 1)
             if k > 0:
                 for v_idx in mesh_triangles_np[idx_list[0]]:
                     hit_vertices.add(v_idx)
         all_hit_vertices_by_answer[answer] = hit_vertices
 
-        for start_node_idx in tqdm(list(hit_vertices), desc=f"Spreading '{answer}' color", leave=False):
+        for start_node_idx in tqdm(list(hit_vertices),
+                                   desc=f"Spreading '{answer}' color",
+                                   leave=False):
             start_pos = mesh_vertices_np[start_node_idx]
             q = deque([start_node_idx])
             visited = {start_node_idx}
@@ -511,17 +528,22 @@ def process_questionnaire_answers(
                 for neighbor_idx in vertex_adjacency[current_idx]:
                     if neighbor_idx not in visited:
                         # Use squared distance for comparison
-                        dist_sq_from_start = np.sum((mesh_vertices_np[neighbor_idx] - start_pos)**2)
+                        dist_sq_from_start = np.sum(
+                            (mesh_vertices_np[neighbor_idx] - start_pos)**2)
                         if dist_sq_from_start <= feature_size_sq:
                             visited.add(neighbor_idx)
                             q.append(neighbor_idx)
-                            gaussian_weight = np.exp(-dist_sq_from_start / gaussian_spread_denominator_qa)
-                            final_colors[neighbor_idx] += color_vec * gaussian_weight
+                            gaussian_weight = np.exp(
+                                -dist_sq_from_start /
+                                gaussian_spread_denominator_qa)
+                            final_colors[
+                                neighbor_idx] += color_vec * gaussian_weight
                             total_weights[neighbor_idx] += gaussian_weight
 
     print("Blending colors across the mesh...")
     valid_weights_mask = total_weights > 1e-9
-    final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
+    final_colors[valid_weights_mask] /= total_weights[valid_weights_mask,
+                                                      np.newaxis]
     final_colors[~valid_weights_mask] = [0.0, 0.0, 0.0]
     combined_mesh = o3d.geometry.TriangleMesh(mesh)
     combined_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
@@ -530,11 +552,16 @@ def process_questionnaire_answers(
     print("\nGenerating Individual Segmented Meshes...")
     os.makedirs(output_segmented_meshes_dir, exist_ok=True)
     for answer, hit_vertices in all_hit_vertices_by_answer.items():
-        color_info = ANSWER_COLOR_MAP.get(answer, {"rgb": DEFAULT_COLOR_RGB, "name": DEFAULT_COLOR_NAME})
+        color_info = ANSWER_COLOR_MAP.get(answer, {
+            "rgb": DEFAULT_COLOR_RGB,
+            "name": DEFAULT_COLOR_NAME
+        })
         color_vec = np.array(color_info["rgb"]) / 255.0
         segmented_colors = np.zeros((n_vertices, 3), dtype=float)
 
-        for start_node_idx in tqdm(list(hit_vertices), desc=f"Coloring '{answer}' segment", leave=False):
+        for start_node_idx in tqdm(list(hit_vertices),
+                                   desc=f"Coloring '{answer}' segment",
+                                   leave=False):
             start_pos = mesh_vertices_np[start_node_idx]
             q = deque([start_node_idx])
             visited = {start_node_idx}
@@ -544,15 +571,18 @@ def process_questionnaire_answers(
                 for neighbor_idx in vertex_adjacency[current_idx]:
                     if neighbor_idx not in visited:
                         # Use squared distance for comparison
-                        dist_sq_from_start = np.sum((mesh_vertices_np[neighbor_idx] - start_pos)**2)
+                        dist_sq_from_start = np.sum(
+                            (mesh_vertices_np[neighbor_idx] - start_pos)**2)
                         if dist_sq_from_start <= feature_size_sq:
                             visited.add(neighbor_idx)
                             q.append(neighbor_idx)
                             segmented_colors[neighbor_idx] = color_vec
 
         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
-        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
-        output_path = os.path.join(output_segmented_meshes_dir, f"{color_info['name']}.ply")
+        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(
+            segmented_colors)
+        output_path = os.path.join(output_segmented_meshes_dir,
+                                   f"{color_info['name']}.ply")
         save_geometry_threaded(output_path, segmented_mesh)
 
     if visualize:
@@ -618,7 +648,8 @@ def analyze_and_plot_point_cloud(csv_file_path, output_plot_path):
         linewidth=0.5,
     )
 
-    ax.set_title('3D Distribution of Gaze Points (Colored by Occurrence Count)')
+    ax.set_title(
+        '3D Distribution of Gaze Points (Colored by Occurrence Count)')
     ax.set_xlabel('X Coordinate')
     ax.set_ylabel('Z Coordinate')
     ax.set_zlabel('Y Coordinate')
@@ -637,22 +668,22 @@ def analyze_and_plot_point_cloud(csv_file_path, output_plot_path):
         mid_y = (df['y'].max() + df['y'].min()) * 0.5
         mid_z = (df['z'].max() + df['z'].min()) * 0.5
         ax.set_xlim(mid_x - max_range * 0.5, mid_x + max_range * 0.5)
-        ax.set_ylim(
-            mid_z - max_range * 0.5, mid_z + max_range * 0.5
-        )  # Y-axis of plot gets Z-data limits
-        ax.set_zlim(
-            mid_y - max_range * 0.5, mid_y + max_range * 0.5
-        )  # Z-axis of plot gets Y-data limits
+        ax.set_ylim(mid_z - max_range * 0.5, mid_z +
+                    max_range * 0.5)  # Y-axis of plot gets Z-data limits
+        ax.set_zlim(mid_y - max_range * 0.5, mid_y +
+                    max_range * 0.5)  # Z-axis of plot gets Y-data limits
     except ValueError:
         print("Could not determine axis range automatically.")
     ax.grid(True)
 
     # Move the plot saving to a separate thread
-    plot_thread = threading.Thread(target=save_plot_threaded, args=(fig, output_plot_path))
-    plot_thread.daemon = True # Allows the main program to exit even if the thread is still running
+    plot_thread = threading.Thread(target=save_plot_threaded,
+                                   args=(fig, output_plot_path))
+    plot_thread.daemon = True  # Allows the main program to exit even if the thread is still running
     plot_thread.start()
-    
-    print(f"Plot saving initiated for {output_plot_path} in a separate thread.")
+
+    print(
+        f"Plot saving initiated for {output_plot_path} in a separate thread.")
 
 
 if __name__ == '__main__':
@@ -697,7 +728,7 @@ if __name__ == '__main__':
 
                     if GENERATE_SANITY_CHECK and os.path.exists(input_file):
                         analyze_and_plot_point_cloud(str(input_file),
-                                                    output_sanity_plot)
+                                                     output_sanity_plot)
 
                     if GENERATE_GAZE_VISUALIZATIONS and input_file.exists(
                     ) and model_file.exists():
@@ -714,7 +745,8 @@ if __name__ == '__main__':
                             f"Skipping gaze visualizations: Missing input or model file."
                         )
 
-                    if GENERATE_IMPRESSION and os.path.exists(qa_input_file) and os.path.exists(model_file):
+                    if GENERATE_IMPRESSION and os.path.exists(
+                            qa_input_file) and os.path.exists(model_file):
                         print("\n=== Processing questionnaire answers ===")
                         process_questionnaire_answers(
                             str(qa_input_file),

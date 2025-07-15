@@ -14,6 +14,7 @@ Notes
   was used to control formatting behaviour
 """
 
+from collections import deque
 import os
 from pathlib import Path
 import sys
@@ -43,6 +44,8 @@ from PIL import Image as PILImage
 # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
 # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
 DEFAULT_HOLOLENS_2_SPATIAL_ERROR = 2.66
+DEFAULT_GAUSSIAN_DENOMINATOR = 2 * (DEFAULT_HOLOLENS_2_SPATIAL_ERROR**2)
+DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
 # Colors
 DEFAULT_CMAP = plt.get_cmap('jet')
@@ -185,11 +188,17 @@ processed_voice_filename = "processed_voice"
 ### CALCULATION ###
 
 
+# yapf: disable
+# Read about KD-Tree (Medium | EN): https://medium.com/@isurangawarnasooriya/exploring-kd-trees-a-comprehensive-guide-to-implementation-and-applications-in-python-3385fd56a246
+# Read about KD-Tree (Qiita | JP): https://qiita.com/RAD0N/items/7a192a4a5351f481c99f
 def _calculate_smoothed_vertex_intensities(
     gaze_points_np,
     mesh,
-    hololens_2_spatial_error,
-    gaussian_denominator,
+    # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
+    # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
+    hololens_2_spatial_error=DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    # gaussian_denominator = 2 * (hololens_2_spatial_error ^ 2)
+    gaussian_denominator=DEFAULT_GAUSSIAN_DENOMINATOR,
 ):
     # Get the vertices, triangles of the mesh
     mesh_vertices_np = np.asarray(mesh.vertices)
@@ -198,12 +207,109 @@ def _calculate_smoothed_vertex_intensities(
 
     # Mapping gaze points to nearest mesh faces (vertices)
     # Using a raycasting scene from Open3D
+    # RaycastingScene docs: https://www.open3d.org/docs/release/python_api/open3d.t.geometry.RaycastingScene.html
     mesh_scene = o3d.t.geometry.RaycastingScene()
     mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+    # Add gaze points as the query points, to find closest triangle (primitive_ids)
     query_points = o3d.core.Tensor(gaze_points_np, dtype=o3d.core.Dtype.Float32)
     closest_geometry = mesh_scene.compute_closest_points(query_points)
+    # A tensor with the primitive IDs, which corresponds to the triangle index.
     closest_face_indices = closest_geometry['primitive_ids'].numpy()
 
+    # Calculate the raw hit counts on the mesh vertices
+    # & assign each gaze point to its closest triangle index
+    # triangle (face) = [vertex_1, vertex_2, vertex_3]
+    #
+    # Mesh vertices intensity   :   Loop over all vertices in each triangle (closest_face_indices)
+    #                               aggregate to each vertex according to index
+    # Point cloud intensity     :   Store the index of closest triangle (face), after the intensity
+    #                               on each mesh vertex is calculated, the stored triangle index
+    #                               can be used to find the intensity of point cloud
+    raw_hit_counts = np.zeros(n_vertices, dtype=np.float64)
+    point_to_face_map = np.empty(gaze_points_np.shape[0], dtype=int)
+
+    for i, closest_face_idx in enumerate(closest_face_indices):
+        if closest_face_idx != o3d.t.geometry.RayCastingScene.INVALID_ID:
+            point_to_face_map[i] = closest_face_idx
+            for v_idx in mesh_triangles_np[closest_face_idx]:
+                raw_hit_counts[v_idx] += 1
+
+    # Log scaling improves visual detail, large numbers do not dominate the heatmap
+    # causing the difference (comparison) to be lost. i.e. difference between 1 & 10 hits
+    # and 100 & 1000 hits both are shown on the heatmap.
+    #
+    # Log scaling aligns with human perception (logarithmic)
+    # more sensitive to change at lower levels of stimulus compared to high levels.
+    #
+    # Enables the handling of wide dynamic ranges. If gaze is recorded for 5 mins, etc.
+    #
+    # np.log1p() = np.log(1 + x) | Prevents log(0) = inf
+    raw_hit_counts = np.log1p(raw_hit_counts)
+
+    # Applying Gaussian spread (parameters tuned to the eye tracker error of HoloLens 2)
+    #
+    # This method of spreading will cause leakage for high values of error
+    # However, it will ensure nearby vertices recieve color, even if the
+    # original mesh is malformed (not fully connected, missing edges)
+    #
+    # Build a KD-tree with FLANN for efficient radius search
+    # Open3D docs: https://www.open3d.org/docs/release/tutorial/geometry/kdtree.html
+    # FLANN docs: https://www.cs.ubc.ca/research/flann/
+    kdtree = o3d.geometry.KDTreeFlann(mesh)
+    interpolated_heatmap_values = np.copy(raw_hit_counts)
+    hit_vertices_indices = np.where(raw_hit_counts > 0)[0]
+
+    for start_node_idx in hit_vertices_indices:
+        hit_value = raw_hit_counts[start_node_idx]
+        # Use KD-Tree to find points within the radius
+        # [num_points, point_indices, euclidean_distance]
+        [k, indices, euclidean_dist] = kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+        if k > 1:
+            # Calculate the gaussian adjusted intensity of each vertex based on nearby points within radius
+            #
+            #       n(points in radius)                         squared_euclidean_distance
+            # GAI =        SUM          weight_of_point * e ^ - _____________________________
+            #             i = 1                                 gaussian_denominator
+            #
+            # gaussian_denominator = 2 * (hololens_2_spatial_error ^ 2)
+            gaussian_weights = np.exp(-np.asarray(euclidean_dist)**2 / gaussian_denominator)
+            for i, neighbor_idx in enumerate(indices):
+                if neighbor_idx != start_node_idx:
+                    interpolated_heatmap_values[neighbor_idx] += hit_value * gaussian_weights[i]
+
+    # # ALTERNATIVE GAUSSIAN METHOD | NO LEAKAGE | BUT CAUSES UNCOLORED / DISCONNECTED MESH
+    # # This method ensures that there is no leakage
+    # # However, some vertices will not recieve color if they are not connected properly
+    # # caused by errors during model downsizing or scanning
+    # vertex_adjacency = {i: set() for i in range(n_vertices)}
+    # for v0, v1, v2 in mesh_triangles_np:
+    #     vertex_adjacency[v0].update([v1, v2])
+    #     vertex_adjacency[v1].update([v0, v2])
+    #     vertex_adjacency[v2].update([v0, v1])
+    # interpolated_heatmap_values = np.zeros(n_vertices, dtype=np.float64)
+    # hit_vertices_indices = np.where(raw_hit_counts > 0)[0]
+    # for start_node_idx in tqdm(
+    #     hit_vertices_indices, desc="Spreading heatmap via BFS"
+    # ):
+    #     hit_value = raw_hit_counts[start_node_idx]
+    #     start_pos = mesh_vertices_np[start_node_idx]
+    #     q = deque([start_node_idx])
+    #     visited = {start_node_idx}
+    #     interpolated_heatmap_values[start_node_idx] += hit_value
+    #     while q:
+    #         current_idx = q.popleft()
+    #         for neighbor_idx in vertex_adjacency[current_idx]:
+    #             if neighbor_idx not in visited:
+    #                 dist_from_start = np.linalg.norm(mesh_vertices_np[neighbor_idx] - start_pos)
+    #                 if dist_from_start <= hololens_2_spatial_error:
+    #                     visited.add(neighbor_idx)
+    #                     q.append(neighbor_idx)
+    #                     distance_sq = dist_from_start**2
+    #                     gaussian_weight = np.exp(-distance_sq / gaussian_denominator)
+    #                     interpolated_heatmap_values[neighbor_idx] += hit_value * gaussian_weight
+
+    return interpolated_heatmap_values, point_to_face_map
+# yapf: enable
 
 ### UTILS ###
 
@@ -277,6 +383,7 @@ def filter_data_on_condition(
     preprocess: bool = True,
     mode: int = 0, # 'STRICT': 0 | 'LINIENT': 1
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+    target_voxel_resolution=DEFAULT_TARGET_VOXEL_RESOLUTION,
     base_color: List = DEFAULT_BASE_COLOR,
     cmap = DEFAULT_CMAP,
     groups: List = [],
@@ -549,6 +656,7 @@ def filter_data_on_condition(
 ### PROCESS DATA ###
 
 
+# yapf: disable
 def generate_gaze_pointcloud_heatmap(
     input_file,
     model_file,
@@ -557,16 +665,78 @@ def generate_gaze_pointcloud_heatmap(
     hololens_2_spatial_error,
     gaussian_denominator,
 ):
-    pass
+    data = pd.read_csv(input_file, header=0).to_numpy()
+    gaze_points_np = data[:, :3]
+    mesh = o3d.io.read_triangle_mesh(model_file)
+    if not mesh.has_vertices():
+        raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
+    mesh.compute_vertex_normals()
+
+    final_vertex_intensities, point_to_face_map = _calculate_smoothed_vertex_intensities(
+        gaze_points_np=gaze_points_np,
+        mesh=mesh,
+        hololens_2_spatial_error=hololens_2_spatial_error,
+        gaussian_denominator=gaussian_denominator,
+    )
+
+    # Generate Heatmap Mesh
+    max_mesh = np.max(final_vertex_intensities)
+    normalized_vertex_intensities = final_vertex_intensities / max_mesh
+
+    mesh_vertex_colors = cmap(normalized_vertex_intensities)[:, :3]
+    mesh_vertex_colors[final_vertex_intensities < 1e-9] = base_color
+    mesh.vertex_colors = o3d.utility.Vector3dVector(mesh_vertex_colors)
+
+    # Generate Intensity Point Cloud
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    final_point_intensities = []
+    for face_idx in point_to_face_map:
+        final_point_intensities.append(np.mean(final_vertex_intensities[mesh_triangles_np[face_idx]]))
+    final_point_intensities = np.array(final_point_intensities)
+
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(gaze_points_np))
+    max_pc = np.max(final_point_intensities)
+    normalized_point_intensities = final_point_intensities / max_pc
+
+    pc_colors = cmap(normalized_point_intensities)[:, :3]
+    pc_colors[final_point_intensities < 1e-9] = base_color
+    pcd.colors = o3d.utility.Vector3dVector(pc_colors)
+
+    return pcd, mesh
+# yapf: enable
 
 
+# yapf: disable
 def generate_voxel_from_mesh(
     mesh,
     vertex_intensities,
+    target_voxel_resolution,
     cmap,
     base_color,
 ):
-    pass
+    if mesh is None or vertex_intensities is None:
+        raise ValueError("Skipping voxel heatmap: Missing mesh or intensity data.")
+
+    if not mesh.has_triangles() or not mesh.has_vertices():
+        raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
+    
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+
+    # Find the largest dimension (axis) from xyz-axis
+    min_bound = mesh.get_min_bound()
+    max_bound = mesh.get_max_bound()
+    max_range = np.max(max_bound - min_bound)
+
+    # Get the voxel size
+    voxel_size = max_range / (target_voxel_resolution - 1)
+
+    # This dictionary will store the maximum intensity found for each voxel
+    voxel_data = {}
+
+    # Iterate over each triangle in the mesh to rasterize it
+    
+# yapf: enable
 
 
 def process_questionnaire_answeres(
