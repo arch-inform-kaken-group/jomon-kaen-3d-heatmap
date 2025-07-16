@@ -3,7 +3,7 @@ from utils import *
 def main():
     data, errors = filter_data_on_condition(
         root="./src/data",
-        preprocess=False,
+        preprocess=True,
         use_cache=False,
         min_emotion_count=3,
         mode=0,
