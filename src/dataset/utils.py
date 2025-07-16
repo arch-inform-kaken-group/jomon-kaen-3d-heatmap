@@ -1,6 +1,6 @@
 """
 Author: Lu Hou Yang
-Last updated: 8 July 2025
+Last updated: 17 July 2025
 
 Contains utility functions for 
 - 3D eye gaze data and voice recording
@@ -20,11 +20,11 @@ from pathlib import Path
 import sys
 import threading
 import queue
-from typing import List
 
 import numpy as np
 import pandas as pd
 import open3d as o3d
+import trimesh  # For voxelizing pottery and dogu with color
 
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -149,7 +149,7 @@ ASSIGNED_NUMBERS_DICT = {
 }
 
 # QNA Answer Color
-DEFAULT_QNA_ANSEWR_COLOR_MAP = {
+DEFAULT_QNA_ANSWER_COLOR_MAP = {
     "面白い・気になる形だ": {
         "rgb": [255, 165, 0],
         "name": "orange"
@@ -167,8 +167,8 @@ DEFAULT_QNA_ANSEWR_COLOR_MAP = {
         "name": "red"
     },
     "何も感じない": {
-        "rgb": [255, 255, 0],
-        "name": "yellow"
+        "rgb": [128, 128, 128],
+        "name": "grey"
     },
 }
 
@@ -182,8 +182,11 @@ eg_heatmap_filename = "eye_gaze_intensity_hm"
 voxel_filename = "eye_gaze_voxel"
 qa_pc_filename = "qa_pc"
 segmented_meshes_dirname = "qa_segmented_mesh"
-combined_qa_mesh_filename = "combined_qa_mesh"
 processed_voice_filename = "processed_voice"
+combined_mesh_filename = "combined_qa_mesh"
+
+MESH_PC_VOXEL_EXTENSION = ".ply"
+VOICE_EXTENSION = ".wav"
 
 ### CALCULATION ###
 
@@ -229,7 +232,7 @@ def _calculate_smoothed_vertex_intensities(
     point_to_face_map = np.empty(gaze_points_np.shape[0], dtype=int)
 
     for i, closest_face_idx in enumerate(closest_face_indices):
-        if closest_face_idx != o3d.t.geometry.RayCastingScene.INVALID_ID:
+        if closest_face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
             point_to_face_map[i] = closest_face_idx
             for v_idx in mesh_triangles_np[closest_face_idx]:
                 raw_hit_counts[v_idx] += 1
@@ -383,20 +386,62 @@ def filter_data_on_condition(
     preprocess: bool = True,
     mode: int = 0, # 'STRICT': 0 | 'LINIENT': 1
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
-    target_voxel_resolution=DEFAULT_TARGET_VOXEL_RESOLUTION,
-    base_color: List = DEFAULT_BASE_COLOR,
+    target_voxel_resolution: int = DEFAULT_TARGET_VOXEL_RESOLUTION,
+    qna_answer_color_map: dict = DEFAULT_QNA_ANSWER_COLOR_MAP,
+    base_color: list = DEFAULT_BASE_COLOR,
     cmap = DEFAULT_CMAP,
-    groups: List = [],
-    session_ids: List = [],
-    pottery_ids: List = [],
+    groups: list = [],
+    session_ids: list = [],
+    pottery_ids: list = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
     min_voice_quality: float = 0.1,
+    min_emotion_count: int = 0,
     use_cache: bool = True,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
     generate_report: bool = True,
+    generate_pc_hm_voxel: bool = True,
+    generate_qna: bool = True,
+    generate_voice: bool = True,
 ):
+    """
+    Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
+    Apply filters from (tracking sheet, arguments).
+    Based on preprocess, use_cache the function will generate the training data in processed folder.
+    Finally returns a list of dictionaries that provide the path to all training data.
+
+    TODO: Implement the voxelization of actual pottery and dogu, as training ground truth
+    TODO: Implement a system to filter according to text language before group
+
+    Args:
+        root (str): Root directory that contains all groups 
+        preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
+        mode (int): 1 for strict mode, any missing raw data will cause that pottery/dogu record to be discarded. 0 linient. Defaut: True
+        hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
+        target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
+        qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
+        base_color (list): Background color of all generated data. Default: DEFAULT_BASE_COLOR
+        cmap (plt.Colormap): Color scheme for intensities. Default: DEFAULT_CMAP
+        groups (list): The list of groups to include, leave empty for all groups. Default: []
+        session_ids (list): The list of sessions to include, leave empty for all sessions. Default: []
+        pottery_ids (list): The list of potteries to include, leave empty for all potteries. Default: []
+        min_pointcloud_size (float): Minimum pointcoud data size. Default: 0.0
+        min_qa_size (float): Minimum qa data size. Default: 0.0
+        min_voice_quality (float): Minimum voice quality 1-5. Requires a tracking sheet to filter. Default: 0.1
+        min_emotion_count (int): Minimum emotion count. Unique QNA answers. Default: 0
+        use_cache (bool): Use previous preprocessed data. Default: True
+        from_tracking_sheet (bool): Use a tracking sheet .csv, downloaded from Google Sheets (You can filter the data at Google Sheets and export the subset). Default: False
+        tracking_sheet_path (str): Path to the tracking sheet. Default: ""
+        generate_report (bool): Generate a data report. Default: True
+        generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
+        generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
+        generate_voice (bool): Generate voice. Default: True
+    
+    Returns:
+        data (list[dict]): A list of dictionaries containing the path to processed data and raw data
+        errors (list[dict]): A list of dictionaries containing all errors that occured, each dictionary has the count and list of paths that has errors
+    """
     active_threads = []
 
     GAUSSIAN_DENOMINATOR = 2 * (hololens_2_spatial_error**2)
@@ -418,7 +463,7 @@ def filter_data_on_condition(
     # FORMAT:
     # "ERROR": {
     #   count: int
-    #   paths: List
+    #   paths: list
     # }
     errors = {}
     error_queue = queue.Queue()
@@ -469,7 +514,7 @@ def filter_data_on_condition(
                 output_voxel = processed_pottery_path / f"{voxel_filename}.ply"
                 output_qa_pc = processed_pottery_path / f"{qa_pc_filename}.ply"
                 output_segmented_meshes_dir = processed_pottery_path / segmented_meshes_dirname
-                output_combined_qa_mesh_file = processed_pottery_path / f"{combined_qa_mesh_filename}.ply"
+                output_combined_mesh_file = processed_pottery_path / f"{combined_mesh_filename}.ply"
                 output_voice = processed_pottery_path / f"{processed_voice_filename}.wav"
 
                 # Check if paths exist and increment error
@@ -491,7 +536,7 @@ def filter_data_on_condition(
                         data_paths['QA_SIZE_KB'] = os.path.getsize(qa_path)/1024
                         data_paths[qa_pc_filename] = str(output_qa_pc)
                         data_paths[segmented_meshes_dirname] = str(output_segmented_meshes_dir)
-                        data_paths[combined_qa_mesh_filename] = str(output_combined_qa_mesh_file)
+                        data_paths[combined_mesh_filename] = str(output_combined_mesh_file)
                     else:
                         has_error = True
                         errors = increment_error('QNA path does not exist', str(qa_path), errors)
@@ -522,7 +567,7 @@ def filter_data_on_condition(
             from_tracking_sheet = False
             raise(ValueError(f"Tracking sheet at {tracking_sheet_path} does not exist."))
 
-    if min_voice_quality > 0.0 and not (from_tracking_sheet and Path(tracking_sheet_path).exists()):
+    if min_voice_quality >= 1.0 and not (from_tracking_sheet and Path(tracking_sheet_path).exists()):
         raise(ValueError(f"To filter with voice quality, a tracking sheet is needed"))
 
     # Filter from tracking sheet
@@ -535,7 +580,7 @@ def filter_data_on_condition(
         unique_pottery_id = [f"{pid}({ASSIGNED_NUMBERS_DICT[pid]})" for pid in np.unique(tracking_sheet['ID'])]
         keep_data_index = np.array(np.zeros(len(data)), dtype=bool)
 
-        for i, data_paths in enumerate(tqdm(data)):
+        for i, data_paths in enumerate(tqdm(data, desc="TRACKING SHEET")):
             if data_paths['GROUP'] in unique_groups \
                 and data_paths['SESSION_ID'] in unique_session \
                 and data_paths['ID'] in unique_pottery_id:
@@ -543,9 +588,11 @@ def filter_data_on_condition(
 
         data = np.array(data)[keep_data_index]
         n_filtered_from_tracking_sheet = n_valid_data - len(data)
+        print(f"{n_filtered_from_tracking_sheet} instances filtered from tracking sheet. Check final PDF report for more details.")
 
-    # Filter from parameters
-    n_filtered_from_parameters = 0
+    # Filter from arguments
+    n_filtered_from_arguments = 0
+    data = filter_qna_by_emotion_count(data, min_emotion_count=min_emotion_count)
     if len(groups) > 0: unique_group_keys = list(unique_group_keys & set(groups))
     unique_group_keys = list(unique_group_keys)
     if len(session_ids) > 0: unique_session_keys = list(unique_session_keys & set(session_ids))
@@ -554,7 +601,7 @@ def filter_data_on_condition(
     unique_pottery_keys = list(unique_pottery_keys)
     keep_data_index = np.array(np.zeros(len(data)), dtype=bool)
 
-    for i, data_paths in enumerate(tqdm(data)):
+    for i, data_paths in enumerate(tqdm(data, desc="FUNCTION ARGUMENTS")):
         if data_paths['GROUP'] in unique_group_keys \
             and data_paths['SESSION_ID'] in unique_session_keys \
             and data_paths['ID'] in unique_pottery_keys \
@@ -563,55 +610,76 @@ def filter_data_on_condition(
             keep_data_index[i] = True
 
     data = np.array(data)[keep_data_index]
-    n_filtered_from_parameters = n_valid_data - n_filtered_from_tracking_sheet - len(data)
+    n_filtered_from_arguments = n_valid_data - n_filtered_from_tracking_sheet - len(data)
+    print(f"{n_filtered_from_arguments} instances filtered from provided function arguments. Check final PDF report for more details.")
 
     # Finalizing the data paths
     # Preprocessed
     if (preprocess):
+        print(f"\nPREPROCESSING")
         for data_paths in tqdm(data):
             os.makedirs(data_paths['processed_pottery_path'], exist_ok=True)
 
-            # Eye gaze intensity point cloud & heatmap
-            if use_cache and Path(data_paths[eg_pointcloud_filename]).exists() and Path(data_paths[eg_heatmap_filename]).exists():
-                pass
-            else:
-                eye_gaze_pointcloud, eye_gaze_heatmap_mesh = generate_gaze_pointcloud_heatmap(
-                    input_file=data_paths['pointcloud'],
-                    model_file=data_paths['model'],
-                    cmap=cmap,
-                    base_color=base_color,
-                    hololens_2_spatial_error=hololens_2_spatial_error,
-                    gaussian_denominator=GAUSSIAN_DENOMINATOR
-                )
-                active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
-                active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_filename], eye_gaze_heatmap_mesh, error_queue))
+            if generate_pc_hm_voxel:
+                # Eye gaze intensity point cloud & heatmap
+                # Eye gaze voxel
+                if use_cache and Path(data_paths[eg_pointcloud_filename]).exists() \
+                    and Path(data_paths[eg_heatmap_filename]).exists() \
+                    and Path(data_paths[voxel_filename]).exists():
+                    pass
+                else:
+                    eye_gaze_pointcloud, eye_gaze_heatmap_mesh, final_vertex_intensities = generate_gaze_pointcloud_heatmap(
+                        input_file=data_paths['pointcloud'],
+                        model_file=data_paths['model'],
+                        cmap=cmap,
+                        base_color=base_color,
+                        hololens_2_spatial_error=hololens_2_spatial_error,
+                        gaussian_denominator=GAUSSIAN_DENOMINATOR
+                    )
+                    active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
+                    active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_filename], eye_gaze_heatmap_mesh, error_queue))
 
-            # QNA combined point cloud
-            # QNA segmented mesh
-            if use_cache and Path(data_paths[qa_pc_filename]).exists() and Path(data_paths[segmented_meshes_dirname]).exists():
-                pass
-            else:
-                qa_pointcloud, qa_segmented_mesh = process_questionnaire_answeres(
-                    input_file=data_paths['pointcloud'],
-                    model_file=data_paths['model'],
-                    base_color=base_color,
-                    hololens_2_spatial_error=hololens_2_spatial_error,
-                    gaussian_denominator=GAUSSIAN_DENOMINATOR
-                )
-                active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
+                    eye_gaze_voxel = generate_voxel_from_mesh(
+                        mesh=eye_gaze_heatmap_mesh,
+                        vertex_intensities=final_vertex_intensities,
+                        target_voxel_resolution=target_voxel_resolution,
+                        cmap=cmap,
+                        base_color=base_color,
+                    )
+                    active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
-                os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
-                for k in qa_segmented_mesh.keys():
-                    segmented_mesh = qa_segmented_mesh[k]
-                    individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
-                    active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
+            if generate_qna:
+                # QNA combined point cloud
+                # QNA segmented mesh
+                if use_cache and Path(data_paths[qa_pc_filename]).exists() \
+                    and Path(data_paths[segmented_meshes_dirname]).exists() \
+                    and Path(data_paths[combined_mesh_filename]).exists():
+                    pass
+                else:
+                    qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answeres(
+                        input_file=data_paths['qa'],
+                        model_file=data_paths['model'],
+                        base_color=base_color,
+                        qna_answer_color_map=qna_answer_color_map,
+                        hololens_2_spatial_error=hololens_2_spatial_error,
+                        gaussian_denominator=GAUSSIAN_DENOMINATOR
+                    )
+                    active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
+                    active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
 
-            # Voice
-            if use_cache and Path(data_paths[processed_voice_filename]).exists():
-                pass
-            else:
-                waveform, sample_rate = process_voice_data(data_paths['voice'])
-                torchaudio.save(data_paths[processed_voice_filename], waveform, sample_rate)
+                    os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
+                    for k in qa_segmented_mesh.keys():
+                        segmented_mesh = qa_segmented_mesh[k]
+                        individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
+                        active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
+
+            if generate_voice:
+                # Voice
+                if use_cache and Path(data_paths[processed_voice_filename]).exists():
+                    pass
+                else:
+                    waveform, sample_rate = process_voice_data(data_paths['voice'])
+                    torchaudio.save(data_paths[processed_voice_filename], waveform, sample_rate)
 
     # In-time processing, only return path to raw data
     else:
@@ -642,16 +710,67 @@ def filter_data_on_condition(
             min_pointcloud_size=min_pointcloud_size,
             min_qa_size=min_qa_size,
             min_voice_quality=min_voice_quality,
+            min_emotion_count=min_emotion_count,
             from_tracking_sheet=from_tracking_sheet,
             tracking_sheet_path=tracking_sheet_path,
             n_filtered_from_tracking_sheet=n_filtered_from_tracking_sheet,
-            n_filtered_from_parameters=n_filtered_from_parameters,
+            n_filtered_from_arguments=n_filtered_from_arguments,
             n_valid_data=n_valid_data,
             filtered_data=data,
         )
 
     return data, errors
 # yapf: enable
+
+
+def filter_qna_by_emotion_count(data: list, min_emotion_count: int = 1):
+    """
+    Filters a list of data dictionaries based on the number of unique emotions
+    (answers) in their associated QNA file.
+
+    This function iterates through each data entry, reads its corresponding 
+    questionnaire CSV file, and counts the number of distinct answers provided.
+    It returns a new list containing only the data entries that meet or exceed
+    the specified minimum count of unique emotions.
+
+    Args:
+        data (list): A list of dictionaries, where each dictionary
+                           represents a data point and must contain a 'qa' key
+                           with the path to the questionnaire CSV file.
+        min_emotion_count (int, optional): The minimum number of unique emotions
+                                           required for a data point to be
+                                           kept. Defaults to 1.
+
+    Returns:
+        filtered_data: A new list containing only the data dictionaries that
+                    meet the minimum emotion count criterion.
+    """
+    filtered_data = []
+    for data_item in tqdm(data, desc="QNA UNIQUE COUNT"):
+        qna_path = data_item.get('qa')
+
+        # Skip this item if the 'qa' key is missing or the file doesn't exist
+        if not qna_path or not os.path.exists(qna_path):
+            continue
+
+        try:
+            df = pd.read_csv(qna_path)
+
+            if 'answer' not in df.columns:
+                continue
+
+            unique_emotion_count = df['answer'].nunique()
+
+            if unique_emotion_count >= min_emotion_count:
+                filtered_data.append(data_item)
+
+        except pd.errors.EmptyDataError:
+            continue
+        except Exception as e:
+            continue
+
+    return filtered_data
+
 
 ### PROCESS DATA ###
 
@@ -702,7 +821,7 @@ def generate_gaze_pointcloud_heatmap(
     pc_colors[final_point_intensities < 1e-9] = base_color
     pcd.colors = o3d.utility.Vector3dVector(pc_colors)
 
-    return pcd, mesh
+    return pcd, mesh, final_vertex_intensities
 # yapf: enable
 
 
@@ -719,7 +838,7 @@ def generate_voxel_from_mesh(
 
     if not mesh.has_triangles() or not mesh.has_vertices():
         raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
-    
+
     mesh_vertices_np = np.asarray(mesh.vertices)
     mesh_triangles_np = np.asarray(mesh.triangles)
 
@@ -730,23 +849,217 @@ def generate_voxel_from_mesh(
 
     # Get the voxel size
     voxel_size = max_range / (target_voxel_resolution - 1)
+    voxel_size_sq = voxel_size**2
 
     # This dictionary will store the maximum intensity found for each voxel
     voxel_data = {}
 
-    # Iterate over each triangle in the mesh to rasterize it
-    
+    # Triangle Rasterization via Random Sampling (Linear Interpolation)
+    # Rasterization: https://en.wikipedia.org/wiki/Rasterisation
+    # Process each triangle individually to generate points on its surface.
+    for triangle in mesh_triangles_np:
+        # Get the indices of the triangle's three vertices
+        v_idx0, v_idx1, v_idx2 = triangle
+
+        # Get the 3D coordinates of each vertex
+        v0, v1, v2 = mesh_vertices_np[v_idx0], mesh_vertices_np[v_idx1], mesh_vertices_np[v_idx2]
+
+        # Get the intensity value associated with each vertex
+        i0, i1, i2 = vertex_intensities[v_idx0], vertex_intensities[v_idx1], vertex_intensities[v_idx2]
+
+        # Adaptive Sampling Density
+        # To ensure larger triangles are adequately filled with voxels, we sample them more densely
+        # The number of samples is proportional to the triangle's area
+        # AREA = 1/2 * ||E1 x E2||
+        edge1 = v1 - v0
+        edge2 = v2 - v0
+        triangle_area = 0.5 * np.linalg.norm(np.cross(edge1, edge2))
+
+        # Number of sample, with minimum of 10, to ensure small triangles get sample as well
+        num_samples = int(np.ceil(triangle_area / voxel_size_sq)) + 10
+
+        # Barycentric Coordinate Generation for Linear Interpolation
+        # Reading a bit about barycentric coordinate system: https://www.sciencedirect.com/topics/computer-science/barycentric-coordinate#:~:text=3.5%20Barycentric%20Coordinates%20in%20the%20Plane
+        #
+        # Since we do not know the exact positions of points, we just have to make sure that
+        # the generated barycentric coordinates satisfy the condition where u + v = w = 1
+        #
+        # Generate random points within a square, then fold them into a triangle
+        # This is an efficient way to get uniformly distributed points
+        # within a right angle unit triangle [(0, 0), (1, 0), (0, 1)]
+        # Hence, the bounding linear equations of the triangle are
+        # y = 0, x = 0, y = -x + 1
+        # To satisfy the condition of points being in the triangle,
+        # y > 0, x > 0 and y + x < 1
+        #
+        # Generate random points i.e. [(0.2, 0.4), (0.7, 0.6)]
+        rand_points = np.random.rand(num_samples, 2)
+        # Sum i.e. [0.6, 1.3]
+        rand_points_sum = np.sum(rand_points, axis=1)
+        # Fold points from outside the triangles= back inside
+        # i.e. [(0.2, 0.4), (0.3, 0.4)]
+        rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
+
+        # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
+        # Barycentric coordinates are weights for each vertex, summing to 1
+        # u + v + w = 1
+        #
+        # i.e. (0.2, 0.4)
+        # u = 1 - 0.2 - 0.4 = 0.4
+        # v = 0.2
+        # w = 0.4
+        # u + v + w = 0.4 + 0.2 + 0.4 = 1
+        bary_coords = np.zeros((num_samples, 3))
+        bary_coords[:, 0] = 1 - rand_points[:, 0] - rand_points[:, 1] # u | w0
+        bary_coords[:, 1] = rand_points[:, 0]  # v | w1
+        bary_coords[:, 2] = rand_points[:, 1]  # w | w2
+
+        # Point and Intensity Linear Interpolation
+        # Use the barycentric coordinates to calculate the 3D position of each sample point
+        # This is a weighted average of the triangle's vertex positions
+        sample_points = bary_coords @ np.array([v0, v1, v2])
+
+        # Interpolate the intensity for each sample point
+        # Creates a smooth gradient of intensity across the triangle
+        # Since all three vertex may have a different intensity
+        interpolated_intensities = bary_coords @ np.array([i0, i1, i2])
+
+        # Voxel Assignment
+        for point, intensity in zip(sample_points, interpolated_intensities):
+            # For each barycentric point determine which voxel it falls into
+            voxel_coords = tuple(np.floor((point - min_bound) / voxel_size).astype(int))
+
+            # To ensure the heatmap shows peaks clearly, we only keep the
+            # highest intensity value for the given voxel coordinate
+            current_max = voxel_data.get(voxel_coords, -1.0)
+            voxel_data[voxel_coords] = max(current_max, intensity)
+
+    # Convert the voxel_data dictionary into lists of points and their final intensities.
+    voxel_points = []
+    final_intensities = []
+    for coords, intensity in voxel_data.items():
+        # Calculate the center of the voxel in world coordinates
+        voxel_center = min_bound + (np.array(coords) + 0.5) * voxel_size
+        voxel_points.append(voxel_center)
+        final_intensities.append(intensity)
+
+    final_intensities_np = np.array(final_intensities)
+    max_val = np.max(final_intensities_np)
+
+    # Normalize and Color
+    if max_val > 1e-9:
+        normalized_intensities = final_intensities_np / max_val
+    else:
+        normalized_intensities = np.zeros_like(final_intensities_np)
+
+    colors = cmap(normalized_intensities)[:, :3]
+
+    colors[normalized_intensities < 1e-9] = base_color
+
+    # Save and Visualize
+    voxel_pcd = o3d.geometry.PointCloud()
+    voxel_pcd.points = o3d.utility.Vector3dVector(np.array(voxel_points))
+    voxel_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+    return voxel_pcd
 # yapf: enable
 
 
+# yapf: disable
 def process_questionnaire_answeres(
     input_file,
     model_file,
     base_color,
+    qna_answer_color_map,
     hololens_2_spatial_error,
     gaussian_denominator,
 ):
-    pass
+    qa_segmented_meshes = {}
+
+    df = pd.read_csv(input_file, header=0, sep=",")
+    df["estX"] = pd.to_numeric(df["estX"], errors="coerce")
+    df["estY"] = pd.to_numeric(df["estY"], errors="coerce")
+    df["estZ"] = pd.to_numeric(df["estZ"], errors="coerce")
+    df["answer"] = df["answer"].astype(str).str.strip()
+    df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
+    mesh = o3d.io.read_triangle_mesh(model_file)
+    if not mesh.has_vertices():
+        raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
+
+    # Segmented QNA mesh
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    n_vertices = mesh_vertices_np.shape[0]
+
+    qa_points = df[["estX", "estY", "estZ"]].values
+    qa_colors_01 = []
+    for answer in df["answer"]:
+        qa_colors_01.append(qna_answer_color_map.get(answer)["rgb"])
+    qa_colors_01 = np.array(qa_colors_01) / 255.0
+    qa_pcd = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(qa_points))
+    qa_pcd.colors = o3d.utility.Vector3dVector(np.array(qa_colors_01))
+
+    mesh_kdtree = o3d.geometry.KDTreeFlann(mesh)
+    mesh_scene = o3d.t.geometry.RaycastingScene()
+    mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+
+    final_colors = np.zeros((n_vertices, 3), dtype=float)
+    total_weights = np.zeros(n_vertices, dtype=float)
+    unique_answers = df["answer"].unique()
+    all_hit_vertices_by_answer = {}
+
+    for answer in unique_answers:
+        category_df = df[df["answer"] == answer]
+        category_points = category_df[["estX", "estY", "estZ"]].values
+        color_vector = np.array(qna_answer_color_map.get(answer)["rgb"]) / 255.0
+        hit_vertices = set()
+
+        query_points = o3d.core.Tensor(category_points, dtype=o3d.core.Dtype.Float32)
+        closest_geometry = mesh_scene.compute_closest_points(query_points)
+        closest_face_indices = closest_geometry["primitive_ids"].numpy()
+
+        for closest_face_idx in closest_face_indices:
+            if closest_face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
+                for v_idx in mesh_triangles_np[closest_face_idx]:
+                    hit_vertices.add(v_idx)
+        all_hit_vertices_by_answer[answer] = hit_vertices
+
+        for start_node_idx in list(hit_vertices):
+            # Find all vertices within the specified radius
+            [k, indices, euclidean_distance] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+
+            if k > 0:
+                # Calculate Gaussian weights based on squared Euclidean distance
+                gaussian_weights = np.exp(-np.asarray(euclidean_distance)**2 / gaussian_denominator)
+
+                # Apply weighted colors to all neighbors found in the radius
+                final_colors[indices] += color_vector * gaussian_weights[:, np.newaxis]
+                total_weights[indices] += gaussian_weights
+
+    valid_weights_mask = total_weights > 1e-9
+    final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
+    final_colors[~valid_weights_mask] = base_color # Negation of bool mask
+
+    combined_mesh = o3d.geometry.TriangleMesh(mesh)
+    combined_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
+
+    for answer, hit_vertices in all_hit_vertices_by_answer.items():
+        color_info = qna_answer_color_map.get(answer)
+        color_vec = np.array(color_info["rgb"]) / 255.0
+        segmented_colors = np.zeros((n_vertices, 3), dtype=float)
+
+        for start_node_idx in list(hit_vertices):
+            [k, indices, _] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+            if k > 0:
+                # Assign the solid color to all vertices found within the radius
+                segmented_colors[indices] = color_vec
+
+        segmented_mesh = o3d.geometry.TriangleMesh(mesh)
+        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
+        qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = segmented_mesh
+
+    return qa_pcd, qa_segmented_meshes, combined_mesh
+# yapf: enable
 
 
 def process_voice_data(input_file):
@@ -758,6 +1071,11 @@ def process_voice_data(input_file):
 
     return waveform, sample_rate
 
+
+# yapf: disable
+def voxelize_pottery_dogu():
+    pass
+# yapf: enable
 
 ### VISUALIZATIONS ###
 
@@ -872,8 +1190,10 @@ def _create_cmap_image(cmap, width=1.5 * inch, height=0.2 * inch):
     return buf
 
 
-def _generate_analysis_plots(data: np.ndarray,
-                             tracking_sheet_path: str = None):
+def _generate_analysis_plots(
+    data: np.ndarray,
+    tracking_sheet_path: str = None,
+):
     """
     Uses pandas and matplotlib to generate quantitative analysis plots.
     Returns a list of in-memory image buffers.
@@ -978,20 +1298,21 @@ def generate_filtered_dataset_report(
     errors: dict = {},
     mode: int = 0,
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
-    base_color: List = DEFAULT_BASE_COLOR,
+    base_color: list = DEFAULT_BASE_COLOR,
     cmap=DEFAULT_CMAP,
-    groups: List = [],
-    session_ids: List = [],
-    pottery_ids: List = [],
+    groups: list = [],
+    session_ids: list = [],
+    pottery_ids: list = [],
     min_pointcloud_size: float = 0.0,
     min_qa_size: float = 0.0,
     min_voice_quality: float = 0.0,
+    min_emotion_count: int = 1,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
     n_filtered_from_tracking_sheet: int = 0,
-    n_filtered_from_parameters: int = 0,
+    n_filtered_from_arguments: int = 0,
     n_valid_data: int = 0,
-    filtered_data: List[dict] = [],
+    filtered_data: list[dict] = [],
     output_dir: str = ".",
 ):
     """
@@ -1024,14 +1345,14 @@ def generate_filtered_dataset_report(
     # --- 2. Summary & Parameters (Combined for brevity) ---
     # --- Summary Section ---
     story.append(Paragraph("1. Summary", heading_style))
-    final_count = n_valid_data - n_filtered_from_tracking_sheet - n_filtered_from_parameters
+    final_count = n_valid_data - n_filtered_from_tracking_sheet - n_filtered_from_arguments
     summary_data = [
         ['Initial Datasets Found:',
          str(n_valid_data)],
         ['Filtered by Tracking Sheet:',
          str(n_filtered_from_tracking_sheet)],
-        ['Filtered by Parameters:',
-         str(n_filtered_from_parameters)],
+        ['Filtered by Arguments:',
+         str(n_filtered_from_arguments)],
         ['Final Datasets for Processing:',
          str(final_count)],
     ]
@@ -1097,6 +1418,7 @@ def generate_filtered_dataset_report(
         ['Min Point Cloud Size (KB):',
          str(min_pointcloud_size)],
         ['Min Q&A Size (KB):', str(min_qa_size)],
+        ['Min Emotion Count:', str(min_emotion_count)],
         ['Groups:', Paragraph(format_list(groups), body_style)],
         ['Session IDs:',
          Paragraph(format_list(session_ids), body_style)],

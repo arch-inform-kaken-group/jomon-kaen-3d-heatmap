@@ -1,6 +1,6 @@
 """
 Author: Lu Hou Yang
-Last updated: 8 July 2025
+Last updated: 17 July 2025
 
 Contains Jomon Kaen Datasets
 - Preprocessed
@@ -170,13 +170,15 @@ class InTimeJomonKaenDataset(Dataset):
 
 def main():
     data, errors = filter_data_on_condition(
-        root=r"C:\Users\luhou\Desktop\python\jomon-kaen-3d-heatmap\archive\data",
+        root="./src/data",
         preprocess=False,
         use_cache=False,
-        from_tracking_sheet=True,
-        tracking_sheet_path=r"C:\Users\luhou\Desktop\python\jomon-kaen-3d-heatmap\archive\dataset\Tracking_Sheet_METADATA.csv",
-        mode=0)
-    print(errors, len(data))
+        min_emotion_count=3,
+        mode=0,
+        # generate_pc_hm_voxel=False,
+        # generate_voice=False,
+    )
+    # print(errors, len(data))
 
 
 if "__main__" == __name__:
