@@ -1,12 +1,14 @@
 from utils import *
 
+
 def main():
     data, errors = filter_data_on_condition(
         root="./src/data",
         preprocess=True,
         use_cache=False,
-        min_emotion_count=3,
-        mode=0,
+        pottery_ids=["NM0135"],
+        # 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
+        mode=2,
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
         # generate_voice=False,
@@ -17,4 +19,3 @@ def main():
 
 if "__main__" == __name__:
     main()
-

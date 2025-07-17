@@ -384,7 +384,7 @@ def save_plot_threaded(fig, output_plot_path, error_queue):
 def filter_data_on_condition(
     root: str = "",
     preprocess: bool = True,
-    mode: int = 0, # 'STRICT': 0 | 'LINIENT': 1
+    mode: int = 0, # 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
     target_voxel_resolution: int = DEFAULT_TARGET_VOXEL_RESOLUTION,
     qna_answer_color_map: dict = DEFAULT_QNA_ANSWER_COLOR_MAP,
@@ -417,7 +417,7 @@ def filter_data_on_condition(
     Args:
         root (str): Root directory that contains all groups 
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
-        mode (int): 1 for strict mode, any missing raw data will cause that pottery/dogu record to be discarded. 0 linient. Defaut: True
+        mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
         hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
         target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
         qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -498,7 +498,9 @@ def filter_data_on_condition(
             pottery_keys = os.listdir(session_path)
             unique_pottery_keys.update(pottery_keys)
             for p in pottery_keys:
-                has_error = False
+                hm_error = False
+                qna_error = False
+                voice_error = False
                 data_paths = {}
                 pottery_path = session_path / Path(p)
                 processed_pottery_path = processed_session_path / Path(p)
@@ -528,7 +530,7 @@ def filter_data_on_condition(
                         data_paths[eg_heatmap_filename] = str(output_heatmap)
                         data_paths[voxel_filename] = str(output_voxel)
                     else:
-                        has_error = True
+                        hm_error = True
                         errors = increment_error('Point cloud path does not exist', str(pointcloud_path), errors)
 
                     if Path(qa_path).exists():
@@ -538,24 +540,32 @@ def filter_data_on_condition(
                         data_paths[segmented_meshes_dirname] = str(output_segmented_meshes_dir)
                         data_paths[combined_mesh_filename] = str(output_combined_mesh_file)
                     else:
-                        has_error = True
+                        data_paths['QA_SIZE_KB'] = 0
+                        qna_error = True
                         errors = increment_error('QNA path does not exist', str(qa_path), errors)
                 else:
-                    has_error = True
+                    hm_error = True
+                    qna_error = True
                     errors = increment_error('Model path does not exist', str(model_path), errors)
 
                 if Path(voice_path).exists():
                     data_paths['voice'] = str(voice_path)
                     data_paths[processed_voice_filename] = str(output_voice)
                 else:
-                    has_error = True
+                    voice_error = True
                     errors = increment_error('Voice path does not exist', str(voice_path), errors)
 
-                if (not has_error or mode==1):
-                    data_paths['GROUP'] = g
-                    data_paths['SESSION_ID'] = s
-                    data_paths['ID'] = p
-                    data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                data_paths['GROUP'] = g
+                data_paths['SESSION_ID'] = s
+                data_paths['ID'] = p
+                data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                if (hm_error):
+                    continue
+                elif (qna_error and (mode==0 or mode==1)):
+                    continue
+                elif (voice_error and (mode==0 or mode==2)):
+                    continue
+                else:
                     data.append(data_paths)
 
     n_valid_data = len(data)
@@ -592,7 +602,8 @@ def filter_data_on_condition(
 
     # Filter from arguments
     n_filtered_from_arguments = 0
-    data = filter_qna_by_emotion_count(data, min_emotion_count=min_emotion_count)
+    if (mode==0 or mode==1):
+        data = filter_qna_by_emotion_count(data, min_emotion_count=min_emotion_count)
     if len(groups) > 0: unique_group_keys = list(unique_group_keys & set(groups))
     unique_group_keys = list(unique_group_keys)
     if len(session_ids) > 0: unique_session_keys = list(unique_session_keys & set(session_ids))
@@ -648,7 +659,7 @@ def filter_data_on_condition(
                     )
                     active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
-            if generate_qna:
+            if generate_qna and (mode==0 or mode==1):
                 # QNA combined point cloud
                 # QNA segmented mesh
                 if use_cache and Path(data_paths[qa_pc_filename]).exists() \
@@ -673,7 +684,7 @@ def filter_data_on_condition(
                         individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
                         active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
 
-            if generate_voice:
+            if generate_voice and (mode==0 or mode==2):
                 # Voice
                 if use_cache and Path(data_paths[processed_voice_filename]).exists():
                     pass

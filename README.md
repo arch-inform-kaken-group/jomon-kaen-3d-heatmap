@@ -67,7 +67,7 @@ Modify the parameters for different results in the `filter_data_on_condition` fu
 ```python
 root (str): Root directory that contains all groups 
 preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
-mode (int): 1 for strict mode, any missing raw data will cause that pottery/dogu record to be discarded. 0 linient. Defaut: True
+mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
 hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
 target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
 qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
