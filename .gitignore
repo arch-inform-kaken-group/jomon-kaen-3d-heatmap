@@ -1,6 +1,7 @@
 archive
 
 data
+pottery
 
 *.pth
 *.csv

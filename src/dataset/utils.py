@@ -184,6 +184,7 @@ qa_pc_filename = "qa_pc"
 segmented_meshes_dirname = "qa_segmented_mesh"
 processed_voice_filename = "processed_voice"
 combined_mesh_filename = "combined_qa_mesh"
+pottery_dirname = "voxel_pottery"
 
 MESH_PC_VOXEL_EXTENSION = ".ply"
 VOICE_EXTENSION = ".wav"
@@ -383,6 +384,7 @@ def save_plot_threaded(fig, output_plot_path, error_queue):
 # yapf: disable
 def filter_data_on_condition(
     root: str = "",
+    pottery_path: str = "",
     preprocess: bool = True,
     mode: int = 0, # 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
@@ -404,6 +406,7 @@ def filter_data_on_condition(
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
     generate_voice: bool = True,
+    generate_pottery_dogu_voxel: bool = True,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -411,11 +414,11 @@ def filter_data_on_condition(
     Based on preprocess, use_cache the function will generate the training data in processed folder.
     Finally returns a list of dictionaries that provide the path to all training data.
 
-    TODO: Implement the voxelization of actual pottery and dogu, as training ground truth
     TODO: Implement a system to filter according to text language before group
 
     Args:
         root (str): Root directory that contains all groups 
+        pottery_path (str): Path to pottery files
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
         mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
         hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
@@ -437,6 +440,7 @@ def filter_data_on_condition(
         generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
         generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
         generate_voice (bool): Generate voice. Default: True
+        generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
     
     Returns:
         data (list[dict]): A list of dictionaries containing the path to processed data and raw data
@@ -459,6 +463,7 @@ def filter_data_on_condition(
     # Voice path does not exist
     # Save error
     # Tracking sheet, data mismatch
+    # Missing pottery / dogu regardless of file extension
     #
     # FORMAT:
     # "ERROR": {
@@ -470,12 +475,29 @@ def filter_data_on_condition(
 
     # Check if each data instance / file path exists
     data = []
+    pottery_id_to_path = {}
     if not Path(root).exists():
         raise (ValueError(f"Root directory not found: {root}"))
-    processed_path = "\\".join(Path(root).parts[:-1]) / Path('processed')
-    os.makedirs(processed_path, exist_ok=True)
+    if not Path(pottery_path).exists():
+        raise (ValueError(f"Pottery directory not found: {pottery_path}"))
+    processed_dir = "\\".join(Path(root).parts[:-1]) / Path('processed')
+    processed_pottery_dir = processed_dir / Path(pottery_dirname)
+    os.makedirs(processed_dir, exist_ok=True)
+    os.makedirs(processed_pottery_dir, exist_ok=True)
 
     pottery_ids = [f"{pid}({ASSIGNED_NUMBERS_DICT[pid]})" for pid in pottery_ids]
+
+    print(f"\nCHECKING POTTERY PATHS")
+    unique_pottery_dogu_voxel = set([])
+    pottery_id_all = [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
+    pottery_available = os.listdir(pottery_path)
+    pottery_id_available = [p.split(".")[0] for p in pottery_available]
+    for p in tqdm(pottery_id_all, desc="POTTERY & DOGU"):
+        if p in pottery_id_available:
+            pottery_id_to_path[p] = pottery_path / Path(pottery_available[pottery_id_available.index(p)])
+        else:
+            pottery_id_to_path[p] = ""
+            errors = increment_error('Missing pottery / dogu regardless of file extension', str(pottery_path / Path(f"{p}.*")), errors)
 
     # Filter based on group, session, model
     print(f"\nCHECKING RAW DATA PATHS")
@@ -487,7 +509,7 @@ def filter_data_on_condition(
     unique_group_keys.update(group_keys)
     for g in group_keys:
         group_path = root / Path(g)
-        processed_group_path = processed_path / Path(g)
+        processed_group_path = processed_dir / Path(g)
 
         session_keys = os.listdir(group_path)
         unique_session_keys.update(session_keys)
@@ -511,13 +533,13 @@ def filter_data_on_condition(
                 voice_path = pottery_path / Path("session_audio_0.wav")
 
                 output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}.png"
-                output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}.ply"
-                output_heatmap = processed_pottery_path / f"{eg_heatmap_filename}.ply"
-                output_voxel = processed_pottery_path / f"{voxel_filename}.ply"
-                output_qa_pc = processed_pottery_path / f"{qa_pc_filename}.ply"
+                output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_heatmap = processed_pottery_path / f"{eg_heatmap_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_voxel = processed_pottery_path / f"{voxel_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_qa_pc = processed_pottery_path / f"{qa_pc_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_segmented_meshes_dir = processed_pottery_path / segmented_meshes_dirname
-                output_combined_mesh_file = processed_pottery_path / f"{combined_mesh_filename}.ply"
-                output_voice = processed_pottery_path / f"{processed_voice_filename}.wav"
+                output_combined_mesh_file = processed_pottery_path / f"{combined_mesh_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_voice = processed_pottery_path / f"{processed_voice_filename}{VOICE_EXTENSION}"
 
                 # Check if paths exist and increment error
                 if Path(model_path).exists():
@@ -555,17 +577,21 @@ def filter_data_on_condition(
                     voice_error = True
                     errors = increment_error('Voice path does not exist', str(voice_path), errors)
 
-                data_paths['GROUP'] = g
-                data_paths['SESSION_ID'] = s
-                data_paths['ID'] = p
-                data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                pottery_dogu_path = pottery_id_to_path[p]
                 if (hm_error):
                     continue
                 elif (qna_error and (mode==0 or mode==1)):
                     continue
                 elif (voice_error and (mode==0 or mode==2)):
                     continue
+                elif pottery_dogu_path == "":
+                    continue
                 else:
+                    data_paths['GROUP'] = g
+                    data_paths['SESSION_ID'] = s
+                    data_paths['ID'] = p
+                    data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                    unique_pottery_dogu_voxel.add(str(pottery_dogu_path))
                     data.append(data_paths)
 
     n_valid_data = len(data)
@@ -625,6 +651,20 @@ def filter_data_on_condition(
     print(f"{n_filtered_from_arguments} instances filtered from provided function arguments. Check final PDF report for more details.")
 
     # Finalizing the data paths
+    # Generate Pottery & Dogu Voxels
+    print(f"\nGENERATING POTTERY & DOGU VOXELS")
+    for data_path in tqdm(list(unique_pottery_dogu_voxel)):
+        if (generate_pc_hm_voxel or generate_qna) and generate_pottery_dogu_voxel:
+            save_path = processed_pottery_dir / f"{str(data_path).split("\\")[-1].split(".")[0]}{MESH_PC_VOXEL_EXTENSION}"
+            if use_cache and Path(save_path).exists():
+                pass
+            else:
+                pottery_dogu_voxel = voxelize_pottery_dogu(
+                    input_file=data_path,
+                    target_voxel_resolution=target_voxel_resolution,
+                )    
+                active_threads.append(save_geometry_threaded(save_path, pottery_dogu_voxel, error_queue))
+
     # Preprocessed
     if (preprocess):
         print(f"\nPREPROCESSING")
@@ -1084,8 +1124,69 @@ def process_voice_data(input_file):
 
 
 # yapf: disable
-def voxelize_pottery_dogu():
-    pass
+def voxelize_pottery_dogu(input_file, target_voxel_resolution):
+    scene = trimesh.load(str(input_file), force="scene")
+    mesh_trimesh = trimesh.util.concatenate(scene.geometry.values())
+
+    vertex_color_trimesh = mesh_trimesh.visual.to_color().vertex_colors
+
+    mesh_o3d = o3d.geometry.TriangleMesh()
+    mesh_o3d.vertices = o3d.utility.Vector3dVector(mesh_trimesh.vertices)
+    mesh_o3d.triangles = o3d.utility.Vector3iVector(mesh_trimesh.faces)
+
+    mesh_o3d.vertex_colors = o3d.utility.Vector3dVector(vertex_color_trimesh[:, :3] / 255.0)
+
+    mesh_vertices_np = np.asarray(mesh_o3d.vertices)
+    mesh_vertex_colors_np = np.asarray(mesh_o3d.vertex_colors)
+    mesh_triangles_np = np.asarray(mesh_o3d.triangles)
+
+    min_bound = mesh_o3d.get_min_bound()
+    max_bound = mesh_o3d.get_max_bound()
+    max_range = np.max(max_bound - min_bound)
+
+    voxel_size = max_range / (target_voxel_resolution - 1)
+    voxel_size_sq = voxel_size**2
+    
+    all_voxel_samples = []
+
+    for triangle in mesh_triangles_np:
+        v_idx0, v_idx1, v_idx2 = triangle
+        v0, v1, v2 = mesh_vertices_np[v_idx0], mesh_vertices_np[v_idx1], mesh_vertices_np[v_idx2]
+        c0, c1, c2 = mesh_vertex_colors_np[v_idx0], mesh_vertex_colors_np[v_idx1], mesh_vertex_colors_np[v_idx2]
+
+        edge1, edge2 = v1 - v0, v2 - v0
+        triangle_area = 0.5 * np.linalg.norm(np.cross(edge1, edge2))
+        num_samples = int(np.ceil(triangle_area / voxel_size_sq)) + 10
+
+        r = np.random.rand(num_samples, 2)
+        r_sum = np.sum(r, axis=1)
+        r[r_sum > 1] = 1 - r[r_sum > 1]
+        bary_coords = np.zeros((num_samples, 3))
+        bary_coords[:, [1, 2]] = r
+        bary_coords[:, 0] = 1 - np.sum(r, axis=1)
+
+        sample_points = bary_coords @ np.array([v0, v1, v2])
+        interp_colors = bary_coords @ np.array([c0, c1, c2])
+
+        voxel_coords_all = np.floor((sample_points - min_bound) / voxel_size).astype(int)
+        all_voxel_samples.append(np.hstack((voxel_coords_all, interp_colors)))
+
+    all_samples_np = np.vstack(all_voxel_samples)
+    
+    df = pd.DataFrame(all_samples_np, columns=['x', 'y', 'z', 'r', 'g', 'b'])
+    voxel_data_df = df.groupby(['x', 'y', 'z'])[['r', 'g', 'b']].mean()
+    
+    final_coords = voxel_data_df.index.to_numpy()
+    final_colors_np = voxel_data_df.to_numpy()
+    
+    final_coords_np = np.stack(final_coords)
+    voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
+
+    voxel_pcd = o3d.geometry.PointCloud()
+    voxel_pcd.points = o3d.utility.Vector3dVector(voxel_points)
+    voxel_pcd.colors = o3d.utility.Vector3dVector(final_colors_np)
+
+    return voxel_pcd
 # yapf: enable
 
 ### VISUALIZATIONS ###

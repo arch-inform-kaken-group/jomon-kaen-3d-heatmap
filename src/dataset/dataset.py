@@ -34,6 +34,7 @@ from utils import *
 
 def get_jomon_kaen_dataset(
     root: str = "",
+    pottery_path: str = "",
     mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
     target_voxel_resolution: float = DEFAULT_TARGET_VOXEL_RESOLUTION,
@@ -55,6 +56,7 @@ def get_jomon_kaen_dataset(
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
     generate_voice: bool = True,
+    generate_pottery_dogu_voxel: bool = True,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -64,6 +66,7 @@ def get_jomon_kaen_dataset(
 
     Args:
         root (str): Root directory that contains all groups 
+        pottery_path (str): Path to pottery files
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
         mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
         hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
@@ -85,13 +88,15 @@ def get_jomon_kaen_dataset(
         generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
         generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
         generate_voice (bool): Generate voice. Default: True
-    
+        generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
+
     Returns:
         dataset
     """
     if (preprocess):
         return PreprocessJomonKaenDataset(
             root=root,
+            pottery_path=pottery_path,
             mode=mode,
             hololens_2_spatial_error=hololens_2_spatial_error,
             base_color=base_color,
@@ -110,10 +115,12 @@ def get_jomon_kaen_dataset(
             generate_pc_hm_voxel=generate_pc_hm_voxel,
             generate_qna=generate_qna,
             generate_voice=generate_voice,
+            generate_pottery_dogu_voxel=generate_pottery_dogu_voxel,
         )
     else:
         return InTimeJomonKaenDataset(
             root=root,
+            pottery_path=pottery_path,
             mode=mode,
             hololens_2_spatial_error=hololens_2_spatial_error,
             target_voxel_resolution=target_voxel_resolution,
@@ -134,6 +141,7 @@ class PreprocessJomonKaenDataset(Dataset):
     def __init__(
         self,
         root: str = "",
+        pottery_path: str = "",
         mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
         hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
         target_voxel_resolution: int = DEFAULT_TARGET_VOXEL_RESOLUTION,
@@ -154,11 +162,13 @@ class PreprocessJomonKaenDataset(Dataset):
         generate_pc_hm_voxel: bool = True,
         generate_qna: bool = True,
         generate_voice: bool = True,
+        generate_pottery_dogu_voxel: bool = True,
     ):
         super(PreprocessJomonKaenDataset, self).__init__()
 
         self.data, errors = filter_data_on_condition(
             root=root,
+            pottery_path=pottery_path,
             mode=mode,
             preprocess=True,
             hololens_2_spatial_error=hololens_2_spatial_error,
@@ -180,6 +190,7 @@ class PreprocessJomonKaenDataset(Dataset):
             generate_pc_hm_voxel=generate_pc_hm_voxel,
             generate_qna=generate_qna,
             generate_voice=generate_voice,
+            generate_pottery_dogu_voxel=generate_pottery_dogu_voxel,
         )
 
     def __len__(self):
@@ -194,6 +205,7 @@ class InTimeJomonKaenDataset(Dataset):
     def __init__(
         self,
         root: str = "",
+        pottery_path: str = "",
         mode: int = 0,  # 'STRICT': 0 | 'LINIENT': 1
         hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
         base_color: List = DEFAULT_BASE_COLOR,
@@ -209,6 +221,7 @@ class InTimeJomonKaenDataset(Dataset):
 
         self.data, errors = filter_data_on_condition(
             root=root,
+            pottery_path=pottery_path,
             mode=mode,
             preprocess=False,
             hololens_2_spatial_error=hololens_2_spatial_error,
@@ -232,6 +245,7 @@ class InTimeJomonKaenDataset(Dataset):
 def main():
     data, errors = filter_data_on_condition(
         root="./src/data",
+        pottery_path="./src/pottery",
         preprocess=True,
         use_cache=False,
         # 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
