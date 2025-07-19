@@ -56,7 +56,15 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 
 1. Create a folder in the `src` directory called `data`
 
+1. Download the raw data [Google Drive](https://drive.google.com/drive/folders/1vzZZfysW4tDlc2oXPpJ2WI2H3DBBufG6?usp=drive_link)
+
 1. Paste all group folders (*i.e. G1, G2*) into the `data` directory
+
+1. Create a folder in the `src` directory called `pottery`
+
+1. Download the downsized pottery and dogu [Google Drive](https://drive.google.com/drive/folders/17zaoAvf2vPFnV8Yj6pCrLF8rSl9DqJyM?usp=drive_link)
+
+1. Paste all pottery and dogu into the `pottery` directory
 
 1. Filter the data by passing in the arguments or by using a [tracking sheet](https://docs.google.com/spreadsheets/d/1FLe6tAEtF5eAC3YXU8YLfOeI-VT83V1C/edit?usp=sharing&ouid=100175822335349725367&rtpof=true&sd=true) to the `filter_data_on_condition` function
 

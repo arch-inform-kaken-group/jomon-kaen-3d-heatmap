@@ -43,7 +43,7 @@ from PIL import Image as PILImage
 
 # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
 # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
-DEFAULT_HOLOLENS_2_SPATIAL_ERROR = 2.66
+DEFAULT_HOLOLENS_2_SPATIAL_ERROR = 1.5
 DEFAULT_GAUSSIAN_DENOMINATOR = 2 * (DEFAULT_HOLOLENS_2_SPATIAL_ERROR**2)
 DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
