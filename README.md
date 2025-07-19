@@ -30,9 +30,9 @@ Functions
 
     - QNA data size
 
-    - Voice quallity, 1 - 5
+    - Voice quality, 1 - 5
 
-    - Languange, JP | EN
+    - Language, JP | EN
 
 - Generate filtered data statistics
 

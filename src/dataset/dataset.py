@@ -55,7 +55,7 @@ def get_jomon_kaen_dataset(
     generate_report: bool = True,
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
-    generate_voice: bool = True,
+    generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
 ):
     """
@@ -161,7 +161,7 @@ class PreprocessJomonKaenDataset(Dataset):
         generate_report: bool = True,
         generate_pc_hm_voxel: bool = True,
         generate_qna: bool = True,
-        generate_voice: bool = True,
+        generate_voice: bool = False,
         generate_pottery_dogu_voxel: bool = True,
     ):
         super(PreprocessJomonKaenDataset, self).__init__()

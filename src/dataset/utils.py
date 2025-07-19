@@ -405,7 +405,7 @@ def filter_data_on_condition(
     generate_report: bool = True,
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
-    generate_voice: bool = True,
+    generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
 ):
     """
