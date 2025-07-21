@@ -26,6 +26,8 @@ import pandas as pd
 import open3d as o3d
 import trimesh  # For voxelizing pottery and dogu with color
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -188,6 +190,7 @@ pottery_dirname = "voxel_pottery"
 
 MESH_PC_VOXEL_EXTENSION = ".ply"
 VOICE_EXTENSION = ".wav"
+SANITY_CHECK_EXTENSION = ".png"
 
 ### CALCULATION ###
 
@@ -317,6 +320,8 @@ def _calculate_smoothed_vertex_intensities(
 
 ### UTILS ###
 
+def get_pottery_id_list():
+    return [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
 
 def increment_error(key, path, errors: dict):
     if errors.get(key) == None:
@@ -358,21 +363,21 @@ def save_geometry_threaded(save_path, geometry, error_queue):
     return save_thread
 
 
-def save_plot_threaded(fig, output_plot_path, error_queue):
+def save_plot_threaded(output_plot_path, fig, error_queue):
     """
     Saves a matplotlib plot in a separate thread.
     """
 
-    def _save_plot(errq):
+    def _save_plot(save_path, f, errq):
         try:
-            os.makedirs(os.path.dirname(output_plot_path), exist_ok=True)
-            fig.savefig(output_plot_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            f.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close(f)
         except Exception as e:
-            print(f"\nError saving plot to {output_plot_path}: {e}")
-            errq.put({'Save plot error': output_plot_path})
+            print(f"\nError saving plot to {save_path}: {e}")
+            errq.put({'Save plot error': save_path})
 
-    plot_thread = threading.Thread(target=_save_plot, args=(error_queue))
+    plot_thread = threading.Thread(target=_save_plot, args=(output_plot_path, fig, error_queue))
     plot_thread.daemon = True
     plot_thread.start()
     return plot_thread
@@ -386,7 +391,7 @@ def filter_data_on_condition(
     root: str = "",
     pottery_path: str = "",
     preprocess: bool = True,
-    mode: int = 0, # 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
+    mode: int = 0, # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
     hololens_2_spatial_error: float = DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
     target_voxel_resolution: int = DEFAULT_TARGET_VOXEL_RESOLUTION,
     qna_answer_color_map: dict = DEFAULT_QNA_ANSWER_COLOR_MAP,
@@ -407,6 +412,7 @@ def filter_data_on_condition(
     generate_qna: bool = True,
     generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
+    generate_sanity_check: bool = False,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -420,7 +426,7 @@ def filter_data_on_condition(
         root (str): Root directory that contains all groups 
         pottery_path (str): Path to pottery files
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
-        mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
+        mode (int): 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
         target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
         qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -439,8 +445,9 @@ def filter_data_on_condition(
         generate_report (bool): Generate a data report. Default: True
         generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
         generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
-        generate_voice (bool): Generate voice. Default: True
+        generate_voice (bool): Generate voice. Default: False
         generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
+        generate_sanity_check (bool): Generate sanity check png. Default: False
     
     Returns:
         data (list[dict]): A list of dictionaries containing the path to processed data and raw data
@@ -532,7 +539,7 @@ def filter_data_on_condition(
                 model_path = pottery_path / Path("model.obj")
                 voice_path = pottery_path / Path("session_audio_0.wav")
 
-                output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}.png"
+                output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}{SANITY_CHECK_EXTENSION}"
                 output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_heatmap = processed_pottery_path / f"{eg_heatmap_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_voxel = processed_pottery_path / f"{voxel_filename}{MESH_PC_VOXEL_EXTENSION}"
@@ -590,7 +597,8 @@ def filter_data_on_condition(
                     data_paths['GROUP'] = g
                     data_paths['SESSION_ID'] = s
                     data_paths['ID'] = p
-                    data_paths['processed_pottery_path'] = str(processed_pottery_path)
+                    save_path = processed_pottery_dir / f"{str(pottery_dogu_path).split("\\")[-1].split(".")[0]}{MESH_PC_VOXEL_EXTENSION}"
+                    data_paths['processed_pottery_path'] = str(save_path)
                     unique_pottery_dogu_voxel.add(str(pottery_dogu_path))
                     data.append(data_paths)
 
@@ -669,7 +677,9 @@ def filter_data_on_condition(
     if (preprocess):
         print(f"\nPREPROCESSING")
         for data_paths in tqdm(data):
-            os.makedirs(data_paths['processed_pottery_path'], exist_ok=True)
+            if generate_sanity_check:
+                sanity_plot = analyze_and_plot_point_cloud(csv_file_path=data_paths['pointcloud'])
+                active_threads.append(save_plot_threaded(data_paths[sanity_plot_filename], sanity_plot, error_queue))
 
             if generate_pc_hm_voxel:
                 # Eye gaze intensity point cloud & heatmap
@@ -696,6 +706,7 @@ def filter_data_on_condition(
                         target_voxel_resolution=target_voxel_resolution,
                         cmap=cmap,
                         base_color=base_color,
+                        base_pottery_pcd=data_paths['processed_pottery_path'],
                     )
                     active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
@@ -877,128 +888,342 @@ def generate_gaze_pointcloud_heatmap(
 
 
 # yapf: disable
+# def generate_voxel_from_mesh(
+#     mesh,
+#     vertex_intensities,
+#     target_voxel_resolution,
+#     cmap,
+#     base_color,
+# ):
+#     if mesh is None or vertex_intensities is None:
+#         raise ValueError("Skipping voxel heatmap: Missing mesh or intensity data.")
+
+#     if not mesh.has_triangles() or not mesh.has_vertices():
+#         raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
+
+#     # Initial Setup (Vectorized)
+#     mesh_vertices_np = np.asarray(mesh.vertices)
+#     mesh_triangles_np = np.asarray(mesh.triangles)
+#     min_bound = mesh.get_min_bound()
+#     max_bound = mesh.get_max_bound()
+#     max_range = np.max(max_bound - min_bound)
+#     voxel_size = max_range / (target_voxel_resolution - 1)
+#     voxel_size_sq = voxel_size**2
+
+#     # Calculate Adaptive Sample Counts for ALL Triangles at Once
+#     # Get vertices and intensities for all triangles: shape (num_triangles, 3, 3) and (num_triangles, 3)
+#     tri_vertices = mesh_vertices_np[mesh_triangles_np]
+#     tri_intensities = vertex_intensities[mesh_triangles_np]
+
+#     # Calculate areas for all triangles to determine sample density
+#     # Get the 3D coordinates of each vertex
+#     v0, v1, v2 = tri_vertices[:, 0], tri_vertices[:, 1], tri_vertices[:, 2]
+#     edge1, edge2 = v1 - v0, v2 - v0
+#     # Adaptive Sampling Density
+#     # To ensure larger triangles are adequately filled with voxels, we sample them more densely
+#     # The number of samples is proportional to the triangle's area
+#     # AREA = 1/2 * ||E1 x E2||
+#     triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
+    
+#     # Number of sample, with minimum of 10, to ensure small triangles get sample as well
+#     num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
+#     total_samples = np.sum(num_samples_per_triangle)
+
+#     # Generate and Interpolate ALL Sample Points at Once
+#     # Create an index to map each sample back to its original triangle
+#     triangle_indices = np.repeat(np.arange(len(mesh_triangles_np)), num_samples_per_triangle)
+
+#     # Barycentric Coordinate Generation for Linear Interpolation
+#     # Reading a bit about barycentric coordinate system: https://www.sciencedirect.com/topics/computer-science/barycentric-coordinate#:~:text=3.5%20Barycentric%20Coordinates%20in%20the%20Plane
+#     #
+#     # Since we do not know the exact positions of points, we just have to make sure that
+#     # the generated barycentric coordinates satisfy the condition where u + v = w = 1
+#     #
+#     # Generate random points within a square, then fold them into a triangle
+#     # This is an efficient way to get uniformly distributed points
+#     # within a right angle unit triangle [(0, 0), (1, 0), (0, 1)]
+#     # Hence, the bounding linear equations of the triangle are
+#     # y = 0, x = 0, y = -x + 1
+#     # To satisfy the condition of points being in the triangle,
+#     # y > 0, x > 0 and y + x < 1
+#     #
+#     # Generate random points i.e. [(0.2, 0.4), (0.7, 0.6)]
+#     rand_points = np.random.rand(total_samples, 2)
+#     # Sum i.e. [0.6, 1.3]
+#     rand_points_sum = np.sum(rand_points, axis=1)
+#     # Fold points from outside the triangles= back inside
+#     # i.e. [(0.2, 0.4), (0.3, 0.4)]
+#     rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
+    
+#     # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
+#     # Barycentric coordinates are weights for each vertex, summing to 1
+#     # u + v + w = 1
+#     #
+#     # i.e. (0.2, 0.4)
+#     # u = 1 - 0.2 - 0.4 = 0.4
+#     # v = 0.2
+#     # w = 0.4
+#     # u + v + w = 0.4 + 0.2 + 0.4 = 1
+#     bary_coords = np.zeros((total_samples, 3))
+#     bary_coords[:, 0] = 1 - rand_points[:, 0] - rand_points[:, 1] # u | w0
+#     bary_coords[:, 1] = rand_points[:, 0]  # v | w1
+#     bary_coords[:, 2] = rand_points[:, 1]  # w | w2
+
+#     # Interpolate positions and intensities for all points using the barycentric coordinates
+#     # np.einsum is a fast way to do batched weighted averages
+#     all_sample_points = np.einsum('ij,ijk->ik', bary_coords, tri_vertices[triangle_indices])
+#     # Creates a smooth gradient of intensity across the triangle
+#     # Since all three vertex may have a different intensity
+#     all_interpolated_intensities = np.einsum('ij,ij->i', bary_coords, tri_intensities[triangle_indices])
+
+#     # Voxel Assignment using Pandas
+#     # Calculate voxel coordinates for all points in a single operation
+#     voxel_coords_all = np.floor((all_sample_points - min_bound) / voxel_size).astype(int)
+
+#     # Create a DataFrame to hold voxel coordinates and their intensities
+#     df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
+#     df['intensity'] = all_interpolated_intensities
+    
+#     # Use groupby().max() to find the maximum intensity for each unique voxel
+#     voxel_data_df = df.groupby(['x', 'y', 'z'])['intensity'].max()
+
+#     # Final Processing (Vectorized)
+#     final_coords_np = np.array(voxel_data_df.index.to_list())
+#     final_intensities_np = voxel_data_df.to_numpy()
+
+#     # Calculate world coordinates of voxel centers
+#     voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
+    
+#     # Normalize and apply colormap
+#     max_val = np.max(final_intensities_np)
+#     if max_val > 1e-9:
+#         normalized_intensities = final_intensities_np / max_val
+#     else:
+#         normalized_intensities = np.zeros_like(final_intensities_np)
+        
+#     colors = cmap(normalized_intensities)[:, :3]
+#     colors[normalized_intensities < 1e-9] = base_color
+
+#     # Create Final Point Cloud
+#     voxel_pcd = o3d.geometry.PointCloud()
+#     voxel_pcd.points = o3d.utility.Vector3dVector(voxel_points)
+#     voxel_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+#     return voxel_pcd
+
 def generate_voxel_from_mesh(
     mesh,
     vertex_intensities,
     target_voxel_resolution,
     cmap,
     base_color,
+    base_pottery_pcd=None,
 ):
+    """
+    Generates a voxel heatmap from a mesh.
+
+    Two modes of operation:
+    1. If base_pottery_pcd is None (default):
+       Generates a new voxel grid by sampling points within the mesh's triangles.
+       The output may not align with other external voxel grids.
+
+    2. If base_pottery_pcd is provided:
+       Uses the exact points from the provided point cloud as the basis. It casts rays
+       from these points to find their corresponding intensity on the mesh surface.
+       This guarantees the output heatmap is perfectly aligned with the base pottery.
+    """
     if mesh is None or vertex_intensities is None:
         raise ValueError("Skipping voxel heatmap: Missing mesh or intensity data.")
 
     if not mesh.has_triangles() or not mesh.has_vertices():
         raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
 
-    # Initial Setup (Vectorized)
-    mesh_vertices_np = np.asarray(mesh.vertices)
-    mesh_triangles_np = np.asarray(mesh.triangles)
-    min_bound = mesh.get_min_bound()
-    max_bound = mesh.get_max_bound()
-    max_range = np.max(max_bound - min_bound)
-    voxel_size = max_range / (target_voxel_resolution - 1)
-    voxel_size_sq = voxel_size**2
-
-    # Calculate Adaptive Sample Counts for ALL Triangles at Once
-    # Get vertices and intensities for all triangles: shape (num_triangles, 3, 3) and (num_triangles, 3)
-    tri_vertices = mesh_vertices_np[mesh_triangles_np]
-    tri_intensities = vertex_intensities[mesh_triangles_np]
-
-    # Calculate areas for all triangles to determine sample density
-    # Get the 3D coordinates of each vertex
-    v0, v1, v2 = tri_vertices[:, 0], tri_vertices[:, 1], tri_vertices[:, 2]
-    edge1, edge2 = v1 - v0, v2 - v0
-    # Adaptive Sampling Density
-    # To ensure larger triangles are adequately filled with voxels, we sample them more densely
-    # The number of samples is proportional to the triangle's area
-    # AREA = 1/2 * ||E1 x E2||
-    triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
-    
-    # Number of sample, with minimum of 10, to ensure small triangles get sample as well
-    num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
-    total_samples = np.sum(num_samples_per_triangle)
-
-    # Generate and Interpolate ALL Sample Points at Once
-    # Create an index to map each sample back to its original triangle
-    triangle_indices = np.repeat(np.arange(len(mesh_triangles_np)), num_samples_per_triangle)
-
-    # Barycentric Coordinate Generation for Linear Interpolation
-    # Reading a bit about barycentric coordinate system: https://www.sciencedirect.com/topics/computer-science/barycentric-coordinate#:~:text=3.5%20Barycentric%20Coordinates%20in%20the%20Plane
-    #
-    # Since we do not know the exact positions of points, we just have to make sure that
-    # the generated barycentric coordinates satisfy the condition where u + v = w = 1
-    #
-    # Generate random points within a square, then fold them into a triangle
-    # This is an efficient way to get uniformly distributed points
-    # within a right angle unit triangle [(0, 0), (1, 0), (0, 1)]
-    # Hence, the bounding linear equations of the triangle are
-    # y = 0, x = 0, y = -x + 1
-    # To satisfy the condition of points being in the triangle,
-    # y > 0, x > 0 and y + x < 1
-    #
-    # Generate random points i.e. [(0.2, 0.4), (0.7, 0.6)]
-    rand_points = np.random.rand(total_samples, 2)
-    # Sum i.e. [0.6, 1.3]
-    rand_points_sum = np.sum(rand_points, axis=1)
-    # Fold points from outside the triangles= back inside
-    # i.e. [(0.2, 0.4), (0.3, 0.4)]
-    rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
-    
-    # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
-    # Barycentric coordinates are weights for each vertex, summing to 1
-    # u + v + w = 1
-    #
-    # i.e. (0.2, 0.4)
-    # u = 1 - 0.2 - 0.4 = 0.4
-    # v = 0.2
-    # w = 0.4
-    # u + v + w = 0.4 + 0.2 + 0.4 = 1
-    bary_coords = np.zeros((total_samples, 3))
-    bary_coords[:, 0] = 1 - rand_points[:, 0] - rand_points[:, 1] # u | w0
-    bary_coords[:, 1] = rand_points[:, 0]  # v | w1
-    bary_coords[:, 2] = rand_points[:, 1]  # w | w2
-
-    # Interpolate positions and intensities for all points using the barycentric coordinates
-    # np.einsum is a fast way to do batched weighted averages
-    all_sample_points = np.einsum('ij,ijk->ik', bary_coords, tri_vertices[triangle_indices])
-    # Creates a smooth gradient of intensity across the triangle
-    # Since all three vertex may have a different intensity
-    all_interpolated_intensities = np.einsum('ij,ij->i', bary_coords, tri_intensities[triangle_indices])
-
-    # Voxel Assignment using Pandas
-    # Calculate voxel coordinates for all points in a single operation
-    voxel_coords_all = np.floor((all_sample_points - min_bound) / voxel_size).astype(int)
-
-    # Create a DataFrame to hold voxel coordinates and their intensities
-    df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
-    df['intensity'] = all_interpolated_intensities
-    
-    # Use groupby().max() to find the maximum intensity for each unique voxel
-    voxel_data_df = df.groupby(['x', 'y', 'z'])['intensity'].max()
-
-    # Final Processing (Vectorized)
-    final_coords_np = np.array(voxel_data_df.index.to_list())
-    final_intensities_np = voxel_data_df.to_numpy()
-
-    # Calculate world coordinates of voxel centers
-    voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
-    
-    # Normalize and apply colormap
-    max_val = np.max(final_intensities_np)
-    if max_val > 1e-9:
-        normalized_intensities = final_intensities_np / max_val
-    else:
-        normalized_intensities = np.zeros_like(final_intensities_np)
+    if base_pottery_pcd is not None:        
         
-    colors = cmap(normalized_intensities)[:, :3]
-    colors[normalized_intensities < 1e-9] = base_color
+        base_pottery_pcd = o3d.io.read_point_cloud(base_pottery_pcd)
+        
+        num_pottery_points = len(base_pottery_pcd.points)
+        if num_pottery_points == 0:
+            print("WARNING: Input pottery point cloud is empty.")
+            return o3d.geometry.PointCloud()
 
-    # Create Final Point Cloud
-    voxel_pcd = o3d.geometry.PointCloud()
-    voxel_pcd.points = o3d.utility.Vector3dVector(voxel_points)
-    voxel_pcd.colors = o3d.utility.Vector3dVector(colors)
+        if not mesh.has_vertex_normals():
+            mesh.compute_vertex_normals()
 
-    return voxel_pcd
+        scene = o3d.t.geometry.RaycastingScene()
+        mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        _ = scene.add_triangles(mesh_t)
+
+        query_points = o3d.core.Tensor(np.asarray(base_pottery_pcd.points), dtype=o3d.core.Dtype.Float32)
+        closest_points_ans = scene.compute_closest_points(query_points)
+
+        # 1. Get the essential data that IS available from the result.
+        #    'primitive_ids' = The triangle that the closest point lies on.
+        #    'points' = The 3D coordinate of that closest point on the surface.
+        triangle_ids = closest_points_ans['primitive_ids'].numpy()
+        closest_surface_points = closest_points_ans['points'].numpy()
+        
+        # 2. Get the three vertices (a, b, c) for each identified triangle.
+        mesh_vertices = np.asarray(mesh.vertices)
+        mesh_triangles = np.asarray(mesh.triangles)
+        hit_tri_vertices = mesh_vertices[mesh_triangles[triangle_ids]]
+        a, b, c = hit_tri_vertices[:, 0], hit_tri_vertices[:, 1], hit_tri_vertices[:, 2]
+
+        # 3. Calculate barycentric coordinates (u, v, w) using the point and triangle vertices.
+        #    This is the same robust, vectorized calculation as before.
+        v0, v1 = b - a, c - a
+        v2 = closest_surface_points - a
+
+        d00 = np.einsum('ij,ij->i', v0, v0)
+        d01 = np.einsum('ij,ij->i', v0, v1)
+        d11 = np.einsum('ij,ij->i', v1, v1)
+        d20 = np.einsum('ij,ij->i', v2, v0)
+        d21 = np.einsum('ij,ij->i', v2, v1)
+
+        denom = d00 * d11 - d01 * d01
+        # Add a small epsilon to the denominator to prevent division by zero for degenerate triangles
+        denom[np.abs(denom) < 1e-9] = 1e-9
+        
+        v = (d11 * d20 - d01 * d21) / denom
+        w = (d00 * d21 - d01 * d20) / denom
+        u = 1.0 - v - w
+
+        bary_coords = np.vstack([u, v, w]).T
+                
+        # 4. Interpolate the intensity using our manually calculated coordinates.
+        tri_intensities = vertex_intensities[mesh_triangles[triangle_ids]]
+        final_intensities = np.einsum('ij,ij->i', bary_coords, tri_intensities)
+
+        # 5. Normalize and apply colormap.
+        max_val = np.max(final_intensities) if len(final_intensities) > 0 else 0
+        if max_val > 1e-9:
+            normalized_intensities = final_intensities / max_val
+        else:
+            normalized_intensities = np.zeros_like(final_intensities)
+
+        colors = cmap(normalized_intensities)[:, :3]
+        colors[normalized_intensities < 1e-9] = base_color
+
+        # 6. Create the final heatmap with guaranteed 1-to-1 correspondence.
+        heatmap_pcd = o3d.geometry.PointCloud()
+        heatmap_pcd.points = base_pottery_pcd.points
+        heatmap_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        return heatmap_pcd
+
+    # ==============================================================================
+    # === ORIGINAL LOGIC: Kept for when no base pottery is provided              ===
+    # ==============================================================================
+    else:
+        # Initial Setup (Vectorized)
+        mesh_vertices_np = np.asarray(mesh.vertices)
+        mesh_triangles_np = np.asarray(mesh.triangles)
+        min_bound = mesh.get_min_bound()
+        max_bound = mesh.get_max_bound()
+        max_range = np.max(max_bound - min_bound)
+        voxel_size = max_range / (target_voxel_resolution - 1)
+        voxel_size_sq = voxel_size**2
+
+        # Calculate Adaptive Sample Counts for ALL Triangles at Once
+        # Get vertices and intensities for all triangles: shape (num_triangles, 3, 3) and (num_triangles, 3)
+        tri_vertices = mesh_vertices_np[mesh_triangles_np]
+        tri_intensities = vertex_intensities[mesh_triangles_np]
+
+        # Calculate areas for all triangles to determine sample density
+        # Get the 3D coordinates of each vertex
+        v0, v1, v2 = tri_vertices[:, 0], tri_vertices[:, 1], tri_vertices[:, 2]
+        edge1, edge2 = v1 - v0, v2 - v0
+        # Adaptive Sampling Density
+        # To ensure larger triangles are adequately filled with voxels, we sample them more densely
+        # The number of samples is proportional to the triangle's area
+        # AREA = 1/2 * ||E1 x E2||
+        triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
+        
+        # Number of sample, with minimum of 10, to ensure small triangles get sample as well
+        num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
+        total_samples = np.sum(num_samples_per_triangle)
+
+        # Generate and Interpolate ALL Sample Points at Once
+        # Create an index to map each sample back to its original triangle
+        triangle_indices = np.repeat(np.arange(len(mesh_triangles_np)), num_samples_per_triangle)
+
+        # Barycentric Coordinate Generation for Linear Interpolation
+        # Reading a bit about barycentric coordinate system: https://www.sciencedirect.com/topics/computer-science/barycentric-coordinate#:~:text=3.5%20Barycentric%20Coordinates%20in%20the%20Plane
+        #
+        # Since we do not know the exact positions of points, we just have to make sure that
+        # the generated barycentric coordinates satisfy the condition where u + v = w = 1
+        #
+        # Generate random points within a square, then fold them into a triangle
+        # This is an efficient way to get uniformly distributed points
+        # within a right angle unit triangle [(0, 0), (1, 0), (0, 1)]
+        # Hence, the bounding linear equations of the triangle are
+        # y = 0, x = 0, y = -x + 1
+        # To satisfy the condition of points being in the triangle,
+        # y > 0, x > 0 and y + x < 1
+        #
+        # Generate random points i.e. [(0.2, 0.4), (0.7, 0.6)]
+        rand_points = np.random.rand(total_samples, 2)
+        # Sum i.e. [0.6, 1.3]
+        rand_points_sum = np.sum(rand_points, axis=1)
+        # Fold points from outside the triangles= back inside
+        # i.e. [(0.2, 0.4), (0.3, 0.4)]
+        rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
+        
+        # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
+        # Barycentric coordinates are weights for each vertex, summing to 1
+        # u + v + w = 1
+        #
+        # i.e. (0.2, 0.4)
+        # u = 1 - 0.2 - 0.4 = 0.4
+        # v = 0.2
+        # w = 0.4
+        # u + v + w = 0.4 + 0.2 + 0.4 = 1
+        bary_coords = np.zeros((total_samples, 3))
+        bary_coords[:, 0] = 1 - rand_points[:, 0] - rand_points[:, 1] # u | w0
+        bary_coords[:, 1] = rand_points[:, 0]  # v | w1
+        bary_coords[:, 2] = rand_points[:, 1]  # w | w2
+
+        # Interpolate positions and intensities for all points using the barycentric coordinates
+        # np.einsum is a fast way to do batched weighted averages
+        all_sample_points = np.einsum('ij,ijk->ik', bary_coords, tri_vertices[triangle_indices])
+        # Creates a smooth gradient of intensity across the triangle
+        # Since all three vertex may have a different intensity
+        all_interpolated_intensities = np.einsum('ij,ij->i', bary_coords, tri_intensities[triangle_indices])
+
+        # Voxel Assignment using Pandas
+        # Calculate voxel coordinates for all points in a single operation
+        voxel_coords_all = np.floor((all_sample_points - min_bound) / voxel_size).astype(int)
+
+        # Create a DataFrame to hold voxel coordinates and their intensities
+        df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
+        df['intensity'] = all_interpolated_intensities
+        
+        # Use groupby().max() to find the maximum intensity for each unique voxel
+        voxel_data_df = df.groupby(['x', 'y', 'z'])['intensity'].max()
+
+        # Final Processing (Vectorized)
+        final_coords_np = np.array(voxel_data_df.index.to_list())
+        final_intensities_np = voxel_data_df.to_numpy()
+
+        # Calculate world coordinates of voxel centers
+        voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
+
+        # Normalize and apply colormap
+        max_val = np.max(final_intensities_np)
+        if max_val > 1e-9:
+            normalized_intensities = final_intensities_np / max_val
+        else:
+            normalized_intensities = np.zeros_like(final_intensities_np)
+            
+        colors = cmap(normalized_intensities)[:, :3]
+        colors[normalized_intensities < 1e-9] = base_color
+
+        # Create Final Point Cloud
+        voxel_pcd = o3d.geometry.PointCloud()
+        voxel_pcd.points = o3d.utility.Vector3dVector(voxel_points)
+        voxel_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        return voxel_pcd
 # yapf: enable
 
 
@@ -1201,7 +1426,7 @@ def visualize_geometry(geometry, point_size=1.0):
     vis = o3d.visualization.Visualizer()
     vis.create_window()
     vis.add_geometry(geometry)
-    render_options = vis.get_render_options()
+    render_options = vis.get_render_option()
 
     if isinstance(geometry, o3d.geometry.PointCloud):
         render_options.point_size = point_size
@@ -1212,10 +1437,10 @@ def visualize_geometry(geometry, point_size=1.0):
     vis.run()
     vis.destroy_window()
 
-
-def analyze_and_plot_point_cloud(csv_file_path, output_plot_path, error_queue):
+# yapf: disable
+def analyze_and_plot_point_cloud(csv_file_path):
     """
-    Reads a CSV file with 3D point data, counts occurrences, and saves a 3D scatter plot.
+    Reads a CSV file with 3D point data, counts occurrences.
     """
     df = pd.read_csv(csv_file_path, header=0, usecols=[0, 1, 2])
     df.columns = ['x', 'y', 'z']
@@ -1249,8 +1474,7 @@ def analyze_and_plot_point_cloud(csv_file_path, output_plot_path, error_queue):
         linewidth=0.5,
     )
 
-    ax.set_title(
-        '3D Distribution of Gaze Points (Colored by Occurrence Count)')
+    ax.set_title('3D Distribution of Gaze Points (Colored by Occurrence Count)')
     ax.set_xlabel('X Coordinate')
     ax.set_ylabel('Z Coordinate')
     ax.set_zlabel('Y Coordinate')
@@ -1269,18 +1493,14 @@ def analyze_and_plot_point_cloud(csv_file_path, output_plot_path, error_queue):
         mid_y = (df['y'].max() + df['y'].min()) * 0.5
         mid_z = (df['z'].max() + df['z'].min()) * 0.5
         ax.set_xlim(mid_x - max_range * 0.5, mid_x + max_range * 0.5)
-        ax.set_ylim(mid_z - max_range * 0.5, mid_z +
-                    max_range * 0.5)  # Y-axis of plot gets Z-data limits
-        ax.set_zlim(mid_y - max_range * 0.5, mid_y +
-                    max_range * 0.5)  # Z-axis of plot gets Y-data limits
+        ax.set_ylim(mid_z - max_range * 0.5, mid_z + max_range * 0.5)  # Y-axis of plot gets Z-data limits
+        ax.set_zlim(mid_y - max_range * 0.5, mid_y + max_range * 0.5)  # Z-axis of plot gets Y-data limits
     except ValueError:
         print("Could not determine axis range automatically.")
     ax.grid(True)
 
-    # Move the plot saving to a separate thread
-    plot_thread = threading.Thread(target=save_plot_threaded,
-                                   args=(fig, output_plot_path, error_queue))
-    plot_thread.daemon = True
+    return fig
+# yapf: enable
 
 
 ### PDF Report | AI Generated Visualization Functions ###
