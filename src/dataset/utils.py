@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import open3d as o3d
 import trimesh  # For voxelizing pottery and dogu with color
+from copy import deepcopy
 
 import matplotlib
 matplotlib.use('Agg')
@@ -180,7 +181,7 @@ data_lock = threading.Lock()
 # Data paths
 sanity_plot_filename = "pointcloud_occurrence_plot"
 eg_pointcloud_filename = "eye_gaze_intensity_pc"
-eg_heatmap_filename = "eye_gaze_intensity_hm"
+eg_heatmap_rgb_filename = "eye_gaze_intensity_hm_rgb"
 voxel_filename = "eye_gaze_voxel"
 qa_pc_filename = "qa_pc"
 segmented_meshes_dirname = "qa_segmented_mesh"
@@ -541,7 +542,7 @@ def filter_data_on_condition(
 
                 output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}{SANITY_CHECK_EXTENSION}"
                 output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
-                output_heatmap = processed_pottery_path / f"{eg_heatmap_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_heatmap_rgb = processed_pottery_path / f"{eg_heatmap_rgb_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_voxel = processed_pottery_path / f"{voxel_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_qa_pc = processed_pottery_path / f"{qa_pc_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_segmented_meshes_dir = processed_pottery_path / segmented_meshes_dirname
@@ -556,7 +557,7 @@ def filter_data_on_condition(
                         data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
                         data_paths[sanity_plot_filename] = str(output_sanity_plot)
                         data_paths[eg_pointcloud_filename] = str(output_point_cloud)
-                        data_paths[eg_heatmap_filename] = str(output_heatmap)
+                        data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
                         data_paths[voxel_filename] = str(output_voxel)
                     else:
                         hm_error = True
@@ -685,23 +686,23 @@ def filter_data_on_condition(
                 # Eye gaze intensity point cloud & heatmap
                 # Eye gaze voxel
                 if use_cache and Path(data_paths[eg_pointcloud_filename]).exists() \
-                    and Path(data_paths[eg_heatmap_filename]).exists() \
+                    and Path(data_paths[eg_heatmap_rgb_filename]).exists() \
                     and Path(data_paths[voxel_filename]).exists():
                     pass
                 else:
-                    eye_gaze_pointcloud, eye_gaze_heatmap_mesh, final_vertex_intensities = generate_gaze_pointcloud_heatmap(
+                    eye_gaze_pointcloud, eye_gaze_heatmap_rgb_mesh, final_vertex_intensities, mesh_greyscale = generate_gaze_pointcloud_heatmap(
                         input_file=data_paths['pointcloud'],
                         model_file=data_paths['model'],
                         cmap=cmap,
                         base_color=base_color,
                         hololens_2_spatial_error=hololens_2_spatial_error,
                         gaussian_denominator=GAUSSIAN_DENOMINATOR
-                    )
+                    )#data_paths[eg_heatmap_greyscale_filename]
                     active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
-                    active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_filename], eye_gaze_heatmap_mesh, error_queue))
+                    active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_rgb_filename], eye_gaze_heatmap_rgb_mesh, error_queue))
 
                     eye_gaze_voxel = generate_voxel_from_mesh(
-                        mesh=eye_gaze_heatmap_mesh,
+                        mesh=mesh_greyscale,
                         vertex_intensities=final_vertex_intensities,
                         target_voxel_resolution=target_voxel_resolution,
                         cmap=cmap,
@@ -868,6 +869,16 @@ def generate_gaze_pointcloud_heatmap(
     mesh_vertex_colors[final_vertex_intensities < 1e-9] = base_color
     mesh.vertex_colors = o3d.utility.Vector3dVector(mesh_vertex_colors)
 
+    # --- Generate Greyscale Mesh ---
+    # 1. Create a deep copy to avoid modifying the colored mesh
+    mesh_greyscale = deepcopy(mesh)
+
+    # 2. Create grayscale colors by repeating the intensity value for R, G, and B channels
+    greyscale_colors = np.repeat(normalized_vertex_intensities[:, np.newaxis], 3, axis=1)
+    
+    # 3. Assign the new grayscale colors to the copied mesh
+    mesh_greyscale.vertex_colors = o3d.utility.Vector3dVector(greyscale_colors)
+
     # Generate Intensity Point Cloud
     mesh_triangles_np = np.asarray(mesh.triangles)
     final_point_intensities = []
@@ -883,7 +894,7 @@ def generate_gaze_pointcloud_heatmap(
     pc_colors[final_point_intensities < 1e-9] = base_color
     pcd.colors = o3d.utility.Vector3dVector(pc_colors)
 
-    return pcd, mesh, final_vertex_intensities
+    return pcd, mesh, final_vertex_intensities, mesh_greyscale
 # yapf: enable
 
 
@@ -1101,7 +1112,9 @@ def generate_voxel_from_mesh(
         else:
             normalized_intensities = np.zeros_like(final_intensities)
 
-        colors = cmap(normalized_intensities)[:, :3]
+        # colors = cmap(normalized_intensities)[:, :3]
+        # colors[normalized_intensities < 1e-9] = base_color
+        colors = np.repeat(normalized_intensities[:, np.newaxis], 3, axis=1)
         colors[normalized_intensities < 1e-9] = base_color
 
         # 6. Create the final heatmap with guaranteed 1-to-1 correspondence.

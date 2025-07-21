@@ -29,7 +29,7 @@ import open3d as o3d
 
 from pathlib import Path
 from tqdm import tqdm
-from utils import *
+from dataset.utils import *
 
 
 def get_jomon_kaen_dataset(
@@ -218,14 +218,81 @@ class PreprocessJomonKaenDataset(Dataset):
         elif self.mode == 2:
             print("NOT YET IMPLEMENT MODE=2")
         else:
+            # 1. Load the Open3D point cloud objects
             data_paths = self.data[index]
             voxel_file = str(data_paths[voxel_filename])
-            voxel_data = o3d.io.read_point_cloud(voxel_file)
-
             pottery_file = str(data_paths['processed_pottery_path'])
+
+            voxel_data = o3d.io.read_point_cloud(voxel_file)
             pottery_data = o3d.io.read_point_cloud(pottery_file)
 
-            return pottery_data, voxel_data
+            # 2. Define a Shared Voxel Grid Coordinate System
+            min_bound = pottery_data.get_min_bound()
+            max_bound = pottery_data.get_max_bound()
+            grid_size_world = np.max(max_bound - min_bound)
+            target_resolution = 512
+
+            if grid_size_world < 1e-9:
+                grid_size_world = target_resolution
+            voxel_size = grid_size_world / (target_resolution - 1)
+
+            # 3. Create the Pottery RGB Voxel Grid
+            pottery_points = np.asarray(pottery_data.points, dtype=np.float32)
+            if pottery_data.has_colors():
+                pottery_colors = np.asarray(pottery_data.colors,
+                                            dtype=np.float32)
+            else:
+                pottery_colors = np.full_like(pottery_points,
+                                              0.5,
+                                              dtype=np.float32)
+
+            pottery_indices = np.floor(
+                (pottery_points - min_bound) / voxel_size).astype(int)
+            pottery_valid_mask = np.all(
+                (pottery_indices >= 0) & (pottery_indices < target_resolution),
+                axis=1)
+            pottery_valid_indices = pottery_indices[pottery_valid_mask]
+            pottery_valid_colors = pottery_colors[pottery_valid_mask]
+
+            pottery_rgb_grid = np.zeros(
+                (target_resolution, target_resolution, target_resolution, 3),
+                dtype=np.float32)
+            pottery_rgb_grid[pottery_valid_indices[:, 0],
+                             pottery_valid_indices[:, 1],
+                             pottery_valid_indices[:,
+                                                   2]] = pottery_valid_colors
+
+            # 4. Create the Heatmap Intensity Voxel Grid
+            voxel_points = np.asarray(voxel_data.points, dtype=np.float32)
+            voxel_colors = np.asarray(
+                voxel_data.colors, dtype=np.float32) if voxel_data.has_colors(
+                ) else np.zeros_like(voxel_points)
+
+            # Convert RGB to a single intensity value by averaging the channels.
+            voxel_intensities = np.mean(voxel_colors, axis=1)
+
+            voxel_indices = np.floor(
+                (voxel_points - min_bound) / voxel_size).astype(int)
+            voxel_valid_mask = np.all(
+                (voxel_indices >= 0) & (voxel_indices < target_resolution),
+                axis=1)
+            voxel_valid_indices = voxel_indices[voxel_valid_mask]
+
+            # Filter the single-channel intensities.
+            voxel_valid_intensities = voxel_intensities[voxel_valid_mask]
+
+            # Initialize an empty grid for 1-channel intensity data.
+            voxel_intensity_grid = np.zeros(
+                (target_resolution, target_resolution, target_resolution, 1),
+                dtype=np.float32)
+
+            # Place the intensity value into the single channel of the grid.
+            # We add a new axis to match the grid's shape: (N,) -> (N, 1)
+            voxel_intensity_grid[
+                voxel_valid_indices[:, 0], voxel_valid_indices[:, 1],
+                voxel_valid_indices[:, 2]] = voxel_valid_intensities[:, np.newaxis]
+
+            return pottery_rgb_grid, voxel_intensity_grid
 
     # # Sanity check __getitem__
     # def __getitem__(self, index):
@@ -275,94 +342,67 @@ def main():
     #     generate_qna=False,
     #     generate_voice=False,
     #     generate_pottery_dogu_voxel=False,
-    #     generate_sanity_check=False
-    # )
+    #     generate_sanity_check=False)
 
-    train_dataset, test_dataset = get_jomon_kaen_dataset(
-        root=r"D:\storage\jomon_kaen\data",
-        pottery_path=r"D:\storage\jomon_kaen\pottery",
-        preprocess=True,
-        use_cache=False,
-        # pottery_ids=["IN0017"],
-        # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=3,
-        # generate_pc_hm_voxel=False,
-        generate_qna=False,
-        generate_voice=False,
-        generate_pottery_dogu_voxel=False,
-        generate_sanity_check=False,
-    )
+    # train_dataset, test_dataset = get_jomon_kaen_dataset(
+    #     root=r"D:\storage\jomon_kaen\data",
+    #     pottery_path=r"D:\storage\jomon_kaen\pottery",
+    #     preprocess=True,
+    #     use_cache=False,
+    #     # pottery_ids=["IN0017"],
+    #     # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
+    #     mode=3,
+    #     # generate_pc_hm_voxel=False,
+    #     generate_qna=False,
+    #     generate_voice=False,
+    #     generate_pottery_dogu_voxel=False,
+    #     generate_sanity_check=False,
+    # )
 
     # pottery, voxel = train_dataset.__getitem__(0)
 
-    # visualize_geometry(pottery, point_size=2)
-    # visualize_geometry(voxel, point_size=2)
+    # visualize_geometry(grid_to_pointcloud(pottery), point_size=2)
+    # visualize_geometry(grid_to_pointcloud(voxel), point_size=2)
 
-    # voxel_point_check(pottery, voxel)
+    pass
 
-def voxel_point_check(pottery_data, voxel_data):
+def grid_to_pointcloud(voxel_grid):
     """
-    Compares two point clouds to find matching, extra, and uncovered points.
+    Converts a NumPy voxel grid into an Open3D PointCloud.
 
-    - Matching (Green): Points present in both clouds.
-    - Extra Heatmap (Red): Points in the heatmap but not in the pottery.
-    - Uncovered Pottery (Blue): Points in the pottery but not in the heatmap.
+    Args:
+        voxel_grid (np.ndarray): A grid with shape (D, H, W, C),
+                                 where C is the number of channels (1 or 3).
+
+    Returns:
+        o3d.geometry.PointCloud: A point cloud ready for visualization.
     """
-    pottery_coords = np.asarray(pottery_data.points)
-    voxel_coords = np.asarray(voxel_data.points)
+    # Find the indices (i, j, k) of all non-empty voxels.
+    # We check if the sum of channels is greater than a small number.
+    indices = np.argwhere(voxel_grid.sum(axis=-1) > 1e-9)
+    if indices.size == 0:
+        print("Warning: Voxel grid is empty.")
+        return o3d.geometry.PointCloud()
 
-    # Create sets for very fast lookups in both directions
-    pottery_coords_set = {tuple(point) for point in pottery_coords}
-    voxel_coords_set = {tuple(point) for point in voxel_coords}
+    # Get the color or intensity data from those non-empty voxels.
+    data = voxel_grid[indices[:, 0], indices[:, 1], indices[:, 2]]
 
-    # --- Find matching points and extra heatmap points ---
-    matching_points = []
-    extra_heatmap_points = []
-    for point in voxel_coords:
-        if tuple(point) in pottery_coords_set:
-            matching_points.append(point)
-        else:
-            extra_heatmap_points.append(point)
+    # Create the PointCloud object.
+    pcd = o3d.geometry.PointCloud()
+    
+    # Use the grid indices as the 3D points for a direct visualization.
+    pcd.points = o3d.utility.Vector3dVector(indices.astype(np.float32))
 
-    # --- NEW: Find uncovered pottery points ---
-    uncovered_pottery_points = []
-    for point in pottery_coords:
-        if tuple(point) not in voxel_coords_set:
-            uncovered_pottery_points.append(point)
+    # Assign the colors. If the data is single-channel (intensity),
+    # repeat it to create a grayscale color.
+    if data.shape[1] == 1:
+        # It's an intensity grid, convert to grayscale RGB.
+        pcd.colors = o3d.utility.Vector3dVector(np.repeat(data, 3, axis=1))
+    else:
+        # It's already an RGB grid.
+        pcd.colors = o3d.utility.Vector3dVector(data)
 
-    # --- Report the findings ---
-    print(f"🏺 Pottery point cloud has {len(pottery_coords)} points.")
-    print(f"🔥 Voxel (heatmap) point cloud has {len(voxel_coords)} points.")
-    print(f"✅ Matching points: {len(matching_points)}")
-    print("-" * 30)
-    print(f"❌ Extra heatmap points (in 🔥 but not 🏺): {len(extra_heatmap_points)}")
-    print(f"🔵 Uncovered pottery points (in 🏺 but not 🔥): {len(uncovered_pottery_points)}")
-
-    # --- Visualize all components ---
-    print("\nVisualizing the correspondence check...")
-
-    # 1. Matching points (Green)
-    matching_pcd = o3d.geometry.PointCloud()
-    matching_pcd.points = o3d.utility.Vector3dVector(matching_points)
-    matching_pcd.paint_uniform_color([0.0, 0.8, 0.0])  # Green
-
-    # 2. Extra heatmap points (Red)
-    extra_heatmap_pcd = o3d.geometry.PointCloud()
-    extra_heatmap_pcd.points = o3d.utility.Vector3dVector(extra_heatmap_points)
-    extra_heatmap_pcd.paint_uniform_color([1.0, 0.0, 0.0])  # Red
-
-    # 3. Uncovered pottery points (Blue)
-    uncovered_pottery_pcd = o3d.geometry.PointCloud()
-    uncovered_pottery_pcd.points = o3d.utility.Vector3dVector(uncovered_pottery_points)
-    uncovered_pottery_pcd.paint_uniform_color([0.0, 0.0, 1.0])  # Blue
-
-    # Visualize all three point clouds together
-    o3d.visualization.draw_geometries(
-        [matching_pcd, extra_heatmap_pcd, uncovered_pottery_pcd],
-        point_show_normal=False,
-        window_name="Correspondence Check"
-    )
-
+    return pcd
 
 if "__main__" == __name__:
     main()
