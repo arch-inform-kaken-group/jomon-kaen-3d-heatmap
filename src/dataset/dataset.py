@@ -263,27 +263,42 @@ def main():
     #     # generate_voice=False,
     # )
 
+    # train_dataset, test_dataset = get_jomon_kaen_dataset(
+    #     root="./src/data",
+    #     pottery_path="./src/pottery",
+    #     preprocess=True,
+    #     use_cache=False,
+    #     pottery_ids=["IN0017"],
+    #     # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
+    #     mode=3,
+    #     # generate_pc_hm_voxel=False,
+    #     generate_qna=False,
+    #     generate_voice=False,
+    #     generate_pottery_dogu_voxel=False,
+    #     generate_sanity_check=False
+    # )
+
     train_dataset, test_dataset = get_jomon_kaen_dataset(
-        root="./src/data",
-        pottery_path="./src/pottery",
+        root=r"D:\storage\jomon_kaen\data",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
         preprocess=True,
         use_cache=False,
-        pottery_ids=["IN0017"],
+        # pottery_ids=["IN0017"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=3,
         # generate_pc_hm_voxel=False,
         generate_qna=False,
         generate_voice=False,
         generate_pottery_dogu_voxel=False,
-        generate_sanity_check=False
+        generate_sanity_check=False,
     )
 
-    pottery, voxel = train_dataset.__getitem__(0)
+    # pottery, voxel = train_dataset.__getitem__(0)
 
-    visualize_geometry(pottery, point_size=2)
-    visualize_geometry(voxel, point_size=2)
+    # visualize_geometry(pottery, point_size=2)
+    # visualize_geometry(voxel, point_size=2)
 
-    voxel_point_check(pottery, voxel)
+    # voxel_point_check(pottery, voxel)
 
 def voxel_point_check(pottery_data, voxel_data):
     """
