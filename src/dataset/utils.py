@@ -1,8 +1,8 @@
 """
 Author: Lu Hou Yang
-Last updated: 17 July 2025
+Last updated: 05 August 2025
 
-Contains utility functions for 
+Contains utility functions for
 - 3D eye gaze data and voice recording
 - Data filtering
 - Data statistics
@@ -30,6 +30,7 @@ from copy import deepcopy
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 from tqdm import tqdm
 
 import torchaudio
@@ -51,6 +52,9 @@ DEFAULT_GAUSSIAN_DENOMINATOR = 2 * (DEFAULT_HOLOLENS_2_SPATIAL_ERROR**2)
 DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
 # Colors
+# Gaze duration gradient from bright Cyan to dark Red
+# cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
+# DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
 DEFAULT_CMAP = plt.get_cmap('jet')
 DEFAULT_BASE_COLOR = [0.0, 0.0, 0.0]
 
@@ -154,16 +158,16 @@ ASSIGNED_NUMBERS_DICT = {
 # QNA Answer Color
 DEFAULT_QNA_ANSWER_COLOR_MAP = {
     "面白い・気になる形だ": {
-        "rgb": [255, 165, 0],
-        "name": "orange"
+        "rgb": [0, 255, 255],
+        "name": "cyan"
     },
     "美しい・芸術的だ": {
         "rgb": [0, 128, 0],
         "name": "green"
     },
     "不思議・意味不明": {
-        "rgb": [128, 0, 128],
-        "name": "purple"
+        "rgb": [255, 200, 25],
+        "name": "orange"
     },
     "不気味・不安・怖い": {
         "rgb": [255, 0, 0],
@@ -174,11 +178,34 @@ DEFAULT_QNA_ANSWER_COLOR_MAP = {
         "name": "grey"
     },
 }
+# DEFAULT_QNA_ANSWER_COLOR_MAP = {
+#      "Interesting and attentional shape": {
+#           "rgb": [0, 255, 255],
+#           "name": "cyan"
+#      },
+#      "Beautiful and artistic": {
+#           "rgb": [0, 128, 0],
+#           "name": "green"
+#      },
+#      "Strange and incomprehensible": {
+#           "rgb": [255, 200, 25],
+#           "name": "orange"
+#      },
+#      "Creepy / unsettling / scary": {
+#           "rgb": [255, 0, 0],
+#           "name": "red"
+#      },
+#      "Feel nothing": {
+#           "rgb": [128, 128, 128],
+#           "name": "grey"
+#      },
+# }
 
 # Threading
 data_lock = threading.Lock()
 
 # Data paths
+original_pointcloud_filename = "original_pointcloud"
 sanity_plot_filename = "pointcloud_occurrence_plot"
 eg_pointcloud_filename = "eye_gaze_intensity_pc"
 eg_heatmap_rgb_filename = "eye_gaze_intensity_hm_rgb"
@@ -188,9 +215,11 @@ segmented_meshes_dirname = "qa_segmented_mesh"
 processed_voice_filename = "processed_voice"
 combined_mesh_filename = "combined_qa_mesh"
 pottery_dirname = "voxel_pottery"
+fixation_pointcloud_filename = "fixation_pointcloud"
+fixation_heatmap_filename = "fixation_heatmap"
 
 MESH_PC_VOXEL_EXTENSION = ".ply"
-VOICE_EXTENSION = ".wav"
+VOICE_EXTENSION = ".mp3"
 SANITY_CHECK_EXTENSION = ".png"
 
 ### CALCULATION ###
@@ -275,9 +304,9 @@ def _calculate_smoothed_vertex_intensities(
         if k > 1:
             # Calculate the gaussian adjusted intensity of each vertex based on nearby points within radius
             #
-            #       n(points in radius)                         squared_euclidean_distance
-            # GAI =        SUM          weight_of_point * e ^ - _____________________________
-            #             i = 1                                 gaussian_denominator
+            #           n(points in radius)                     squared_euclidean_distance
+            # GAI =         SUM             weight_of_point * e ^ - _____________________________
+            #               i = 1                                   gaussian_denominator
             #
             # gaussian_denominator = 2 * (hololens_2_spatial_error ^ 2)
             gaussian_weights = np.exp(-np.asarray(euclidean_dist)**2 / gaussian_denominator)
@@ -358,7 +387,7 @@ def save_geometry_threaded(save_path, geometry, error_queue):
             o3d.utility.set_verbosity_level(original_verbosity)
 
     save_thread = threading.Thread(target=_save_geometry,
-                                   args=(save_path, geometry, error_queue))
+                                     args=(save_path, geometry, error_queue))
     save_thread.daemon = True
     save_thread.start()
     return save_thread
@@ -383,9 +412,7 @@ def save_plot_threaded(output_plot_path, fig, error_queue):
     plot_thread.start()
     return plot_thread
 
-
-### FILTERING ###
-
+from pydub import AudioSegment
 
 # yapf: disable
 def filter_data_on_condition(
@@ -414,6 +441,7 @@ def filter_data_on_condition(
     generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
+    generate_fixation: bool = False,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -424,7 +452,7 @@ def filter_data_on_condition(
     TODO: Implement a system to filter according to text language before group
 
     Args:
-        root (str): Root directory that contains all groups 
+        root (str): Root directory that contains all groups
         pottery_path (str): Path to pottery files
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
         mode (int): 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
@@ -528,6 +556,9 @@ def filter_data_on_condition(
             pottery_keys = os.listdir(session_path)
             unique_pottery_keys.update(pottery_keys)
             for p in pottery_keys:
+                if (p == 'language.txt'):
+                    continue
+
                 hm_error = False
                 qna_error = False
                 voice_error = False
@@ -548,6 +579,9 @@ def filter_data_on_condition(
                 output_segmented_meshes_dir = processed_pottery_path / segmented_meshes_dirname
                 output_combined_mesh_file = processed_pottery_path / f"{combined_mesh_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_voice = processed_pottery_path / f"{processed_voice_filename}{VOICE_EXTENSION}"
+                output_fixation_point_cloud = processed_pottery_path / f"{fixation_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_fixation_heatmap = processed_pottery_path / f"{fixation_heatmap_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_original_point_cloud = processed_pottery_path / f"{original_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
 
                 # Check if paths exist and increment error
                 if Path(model_path).exists():
@@ -559,6 +593,9 @@ def filter_data_on_condition(
                         data_paths[eg_pointcloud_filename] = str(output_point_cloud)
                         data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
                         data_paths[voxel_filename] = str(output_voxel)
+                        data_paths[fixation_pointcloud_filename] = str(output_fixation_point_cloud)
+                        data_paths[fixation_heatmap_filename] = str(output_fixation_heatmap)
+                        data_paths[original_pointcloud_filename] = str(output_original_point_cloud)
                     else:
                         hm_error = True
                         errors = increment_error('Point cloud path does not exist', str(pointcloud_path), errors)
@@ -598,7 +635,7 @@ def filter_data_on_condition(
                     data_paths['GROUP'] = g
                     data_paths['SESSION_ID'] = s
                     data_paths['ID'] = p
-                    save_path = processed_pottery_dir / f"{str(pottery_dogu_path).split("\\")[-1].split(".")[0]}{MESH_PC_VOXEL_EXTENSION}"
+                    save_path = processed_pottery_dir / f"{str(pottery_dogu_path).split('\\')[-1].split('.')[0]}{MESH_PC_VOXEL_EXTENSION}"
                     data_paths['processed_pottery_path'] = str(save_path)
                     unique_pottery_dogu_voxel.add(str(pottery_dogu_path))
                     data.append(data_paths)
@@ -664,14 +701,14 @@ def filter_data_on_condition(
     print(f"\nGENERATING POTTERY & DOGU VOXELS")
     for data_path in tqdm(list(unique_pottery_dogu_voxel)):
         if (generate_pc_hm_voxel or generate_qna) and generate_pottery_dogu_voxel:
-            save_path = processed_pottery_dir / f"{str(data_path).split("\\")[-1].split(".")[0]}{MESH_PC_VOXEL_EXTENSION}"
+            save_path = processed_pottery_dir / f"{str(data_path).split('\\')[-1].split('.')[0]}{MESH_PC_VOXEL_EXTENSION}"
             if use_cache and Path(save_path).exists():
                 pass
             else:
                 pottery_dogu_voxel = voxelize_pottery_dogu(
                     input_file=data_path,
                     target_voxel_resolution=target_voxel_resolution,
-                )    
+                )
                 active_threads.append(save_geometry_threaded(save_path, pottery_dogu_voxel, error_queue))
 
     # Preprocessed
@@ -682,6 +719,9 @@ def filter_data_on_condition(
                 sanity_plot = analyze_and_plot_point_cloud(csv_file_path=data_paths['pointcloud'])
                 active_threads.append(save_plot_threaded(data_paths[sanity_plot_filename], sanity_plot, error_queue))
 
+            original_pointcloud = generate_original_pointcloud(input_file=data_paths['pointcloud'])
+            active_threads.append(save_geometry_threaded(data_paths[original_pointcloud_filename], original_pointcloud, error_queue))
+            
             if generate_pc_hm_voxel:
                 # Eye gaze intensity point cloud & heatmap
                 # Eye gaze voxel
@@ -697,7 +737,7 @@ def filter_data_on_condition(
                         base_color=base_color,
                         hololens_2_spatial_error=hololens_2_spatial_error,
                         gaussian_denominator=GAUSSIAN_DENOMINATOR
-                    )#data_paths[eg_heatmap_greyscale_filename]
+                    )
                     active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
                     active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_rgb_filename], eye_gaze_heatmap_rgb_mesh, error_queue))
 
@@ -711,6 +751,17 @@ def filter_data_on_condition(
                     )
                     active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
+            if generate_fixation:
+                fixation_pointcloud, fixation_heatmap = generate_fixation_pointcloud_heatmap(
+                    input_file=data_paths['pointcloud'],
+                    model_file=data_paths['model'],
+                    cmap=cmap,
+                    base_color=base_color,
+                    dispersion_threshold=3,
+                )
+                active_threads.append(save_geometry_threaded(data_paths[fixation_pointcloud_filename], fixation_pointcloud, error_queue))
+                active_threads.append(save_geometry_threaded(data_paths[fixation_heatmap_filename], fixation_heatmap, error_queue))
+
             if generate_qna and (mode==0 or mode==1):
                 # QNA combined point cloud
                 # QNA segmented mesh
@@ -719,7 +770,7 @@ def filter_data_on_condition(
                     and Path(data_paths[combined_mesh_filename]).exists():
                     pass
                 else:
-                    qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answeres(
+                    qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answers(
                         input_file=data_paths['qa'],
                         model_file=data_paths['model'],
                         base_color=base_color,
@@ -742,7 +793,30 @@ def filter_data_on_condition(
                     pass
                 else:
                     waveform, sample_rate = process_voice_data(data_paths['voice'])
-                    torchaudio.save(data_paths[processed_voice_filename], waveform, sample_rate)
+                    # torchaudio.save(data_paths[processed_voice_filename], waveform, sample_rate, format="mp3")
+                    # 1. Ensure tensor is on the CPU, convert to NumPy array, and remove the channel dimension.
+                    #    The .squeeze(0) assumes your tensor shape is [1, num_samples] (mono).
+                    waveform_numpy = waveform.squeeze(0).cpu().numpy()
+
+                    # 2. Convert the float audio from range [-1.0, 1.0] to 16-bit integer format,
+                    #    which is what pydub works with best.
+                    waveform_int16 = (waveform_numpy * 32767).astype(np.int16)
+
+                    # 3. Create the AudioSegment object from the raw audio data.
+                    audio_segment = AudioSegment(
+                        data=waveform_int16.tobytes(),
+                        sample_width=2,  # 2 bytes = 16-bit audio
+                        frame_rate=sample_rate,
+                        channels=1      # 1 for mono, 2 for stereo
+                    )
+
+                    # --- Save (export) the file as an MP3 using pydub ---
+                    print(f"Saving voice data to {data_paths[processed_voice_filename]} using pydub...")
+                    audio_segment.export(
+                        data_paths[processed_voice_filename],
+                        format="mp3",
+                        bitrate="192k"  # You can adjust the quality, e.g., "128k", "320k"
+                    )
 
     # In-time processing, only return path to raw data
     else:
@@ -791,22 +865,22 @@ def filter_qna_by_emotion_count(data: list, min_emotion_count: int = 1):
     Filters a list of data dictionaries based on the number of unique emotions
     (answers) in their associated QNA file.
 
-    This function iterates through each data entry, reads its corresponding 
+    This function iterates through each data entry, reads its corresponding
     questionnaire CSV file, and counts the number of distinct answers provided.
     It returns a new list containing only the data entries that meet or exceed
     the specified minimum count of unique emotions.
 
     Args:
         data (list): A list of dictionaries, where each dictionary
-                           represents a data point and must contain a 'qa' key
-                           with the path to the questionnaire CSV file.
+                             represents a data point and must contain a 'qa' key
+                             with the path to the questionnaire CSV file.
         min_emotion_count (int, optional): The minimum number of unique emotions
                                            required for a data point to be
                                            kept. Defaults to 1.
 
     Returns:
         filtered_data: A new list containing only the data dictionaries that
-                    meet the minimum emotion count criterion.
+                       meet the minimum emotion count criterion.
     """
     filtered_data = []
     for data_item in tqdm(data, desc="QNA UNIQUE COUNT"):
@@ -897,6 +971,179 @@ def generate_gaze_pointcloud_heatmap(
     return pcd, mesh, final_vertex_intensities, mesh_greyscale
 # yapf: enable
 
+def generate_original_pointcloud(input_file: str, jitter_std_dev: float = 0.015):
+    """
+    Loads 3D gaze points from a CSV and adds a small amount of Gaussian jitter.
+
+    This jitter helps visualize the density of points that are in the exact
+    same location by slightly offsetting them, preventing them from perfectly
+    overlapping.
+
+    Args:
+        input_file (str): Path to the CSV file with gaze data.
+                          Expected format: [gaze_x, gaze_y, gaze_z, ...].
+        jitter_std_dev (float): The standard deviation (in meters) of the
+                                Gaussian noise to add to each point's
+                                coordinates. A larger value creates more spread.
+                                Defaults to 0.0015 (1.5mm).
+
+    Returns:
+        o3d.geometry.PointCloud: An Open3D PointCloud object with the jittered points.
+    """
+    try:
+        # Read the first 3 columns (X, Y, Z) from the CSV
+        data = pd.read_csv(input_file, header=0, usecols=[0, 1, 2]).to_numpy()
+    except (FileNotFoundError, pd.errors.EmptyDataError, ValueError) as e:
+        print(f"Warning: Could not read or parse {input_file}: {e}. Returning empty point cloud.")
+        return o3d.geometry.PointCloud()
+
+    gaze_points_np = data
+
+    # If there's no data after loading, return an empty point cloud
+    if gaze_points_np.shape[0] == 0:
+        return o3d.geometry.PointCloud()
+
+    # Generate Gaussian noise with the same shape as the data
+    # loc=0.0 means the noise is centered around zero (no systematic drift)
+    # scale=jitter_std_dev controls the amount of spread
+    noise = np.random.normal(loc=0.0, scale=jitter_std_dev, size=gaze_points_np.shape)
+
+    # Add the noise to the original points to create the jittered effect
+    jittered_points_np = gaze_points_np + noise
+
+    # Create and return the Open3D PointCloud from the new jittered data
+    return o3d.geometry.PointCloud(o3d.utility.Vector3dVector(jittered_points_np))
+
+# yapf: disable
+def generate_fixation_pointcloud_heatmap(
+    input_file: str,
+    model_file: str,
+    cmap: matplotlib.colors.Colormap,
+    base_color: list,
+    dispersion_threshold: float = 1.5, # Feature size
+    min_fixation_duration: float = 0.1,
+):
+    """
+    Analyzes gaze data using a dispersion-based algorithm (I-DT) to identify fixations.
+    It generates a heatmap on a 3D mesh and a point cloud of fixation centroids.
+    The color mapping for both is fixed to a scale of 0ms (minimum) to 1500ms (maximum).
+
+    Args:
+        input_file (str): Path to the CSV file with gaze data.
+                          Expected format: [gaze_x, gaze_y, gaze_z, timestamp, ...].
+        model_file (str): Path to the 3D model file (e.g., .obj, .ply).
+        cmap (matplotlib.colors.Colormap): Matplotlib colormap object for the heatmap.
+        base_color (list): RGB color (range [0,1]) for the mesh.
+        dispersion_threshold (float): The maximum spatial dispersion (in meters) for a
+                                      group of points to be considered a fixation.
+        min_fixation_duration (float): The minimum duration (in seconds) for a group of gaze
+                                       points to be considered a valid fixation.
+
+    Returns:
+        tuple[o3d.geometry.PointCloud, o3d.geometry.TriangleMesh]:
+            - A point cloud where each point represents a fixation centroid, colored by duration.
+            - The colored 3D mesh with the fixation duration heatmap.
+    """
+    # 1. Load Data and Mesh
+    try:
+        data = pd.read_csv(input_file, header=0).to_numpy()
+        if data.shape[1] < 4:
+            print(f"Warning: Not enough columns in {input_file} for fixation analysis. Skipping.")
+            return o3d.geometry.PointCloud(), o3d.geometry.TriangleMesh()
+        gaze_points_np = data[:, :4]
+    except (FileNotFoundError, pd.errors.EmptyDataError) as e:
+        print(f"Warning: Could not read or parse {input_file}: {e}. Skipping fixation analysis.")
+        return o3d.geometry.PointCloud(), o3d.geometry.TriangleMesh()
+
+    mesh = o3d.io.read_triangle_mesh(model_file)
+    if not mesh.has_vertices():
+        return o3d.geometry.PointCloud(), o3d.geometry.TriangleMesh()
+    mesh.compute_vertex_normals()
+
+    # 2. Group Gaze Points into Fixations using I-DT Algorithm
+    gaze_groups = []
+    i = 0
+    while i < len(gaze_points_np):
+        window_start_index = i
+        for j in range(window_start_index, len(gaze_points_np)):
+            window_coords = gaze_points_np[window_start_index : j + 1, :3]
+            if window_coords.shape[0] < 2:
+                continue
+
+            max_coords = np.max(window_coords, axis=0)
+            min_coords = np.min(window_coords, axis=0)
+            dispersion = np.sum(max_coords - min_coords)
+
+            if dispersion > dispersion_threshold:
+                fixation_end_index = j - 1
+                if fixation_end_index >= window_start_index:
+                    gaze_groups.append(gaze_points_np[window_start_index : fixation_end_index + 1])
+                i = j
+                break
+        else:
+            gaze_groups.append(gaze_points_np[window_start_index:, :])
+            i = len(gaze_points_np)
+
+    # 3. Process Groups to Get Valid Fixations (Centroid and Duration)
+    fixations = []
+    for group in gaze_groups:
+        if len(group) > 1:
+            duration = group[-1, 3] - group[0, 3]  # timestamp_end - timestamp_start
+            if duration >= min_fixation_duration:
+                centroid = np.mean(group[:, :3], axis=0) # Average X, Y, Z
+                fixations.append({'centroid': centroid, 'duration': duration})
+
+    if not fixations:
+        mesh.paint_uniform_color(base_color)
+        return o3d.geometry.PointCloud(), mesh
+
+    # 4. Map Fixations to the Closest Vertex on the Mesh for Heatmap
+    mesh_vertices = np.asarray(mesh.vertices)
+    vertex_durations = np.zeros(len(mesh_vertices))
+    pcd_tree = o3d.geometry.KDTreeFlann(mesh)
+
+    for fix in fixations:
+        [k, idx, _] = pcd_tree.search_knn_vector_3d(fix['centroid'], 1)
+        if k > 0:
+            vertex_durations[idx[0]] += fix['duration']
+
+    # 5. Generate and Apply Heatmap Colors to Mesh with FIXED 0-1500ms Scale
+    fixated_indices = np.where(vertex_durations > 0)[0]
+    heatmap_mesh = deepcopy(mesh)
+
+    if len(fixated_indices) > 0:
+        # Clip durations at 1.5s for normalization
+        clipped_vertex_durations = np.clip(vertex_durations, 0.0, 1.0)
+        
+        # Use a fixed normalization scale from 0 to 1.5 seconds (1500ms)
+        norm = plt.Normalize(vmin=0.0, vmax=1.0)
+        
+        # Normalize only the vertices that were actually hit
+        heatmap_colors = cmap(norm(clipped_vertex_durations[fixated_indices]))[:, :3]
+
+        vertex_colors = np.tile(np.array(base_color), (len(mesh_vertices), 1))
+        vertex_colors[fixated_indices] = heatmap_colors
+        heatmap_mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors)
+    else:
+        heatmap_mesh.paint_uniform_color(base_color)
+
+    # 6. Create Fixation Centroid Point Cloud with FIXED 0-1500ms Scale
+    fixation_centroids_np = np.array([f['centroid'] for f in fixations])
+    fixation_durations_np = np.array([f['duration'] for f in fixations])
+
+    # Clip individual fixation durations at 1.5s for normalization
+    clipped_point_durations = np.clip(fixation_durations_np, 0.0, 1.0)
+
+    # Use the same fixed normalization scale for the points
+    norm_points = plt.Normalize(vmin=0.0, vmax=1.0)
+    point_colors = cmap(norm_points(clipped_point_durations))[:, :3]
+
+    fixation_pcd = o3d.geometry.PointCloud()
+    fixation_pcd.points = o3d.utility.Vector3dVector(fixation_centroids_np)
+    fixation_pcd.colors = o3d.utility.Vector3dVector(point_colors)
+
+    return fixation_pcd, heatmap_mesh
+# yapf: enable
 
 # yapf: disable
 # def generate_voxel_from_mesh(
@@ -1035,13 +1282,13 @@ def generate_voxel_from_mesh(
 
     Two modes of operation:
     1. If base_pottery_pcd is None (default):
-       Generates a new voxel grid by sampling points within the mesh's triangles.
-       The output may not align with other external voxel grids.
+        Generates a new voxel grid by sampling points within the mesh's triangles.
+        The output may not align with other external voxel grids.
 
     2. If base_pottery_pcd is provided:
-       Uses the exact points from the provided point cloud as the basis. It casts rays
-       from these points to find their corresponding intensity on the mesh surface.
-       This guarantees the output heatmap is perfectly aligned with the base pottery.
+        Uses the exact points from the provided point cloud as the basis. It casts rays
+        from these points to find their corresponding intensity on the mesh surface.
+        This guarantees the output heatmap is perfectly aligned with the base pottery.
     """
     if mesh is None or vertex_intensities is None:
         raise ValueError("Skipping voxel heatmap: Missing mesh or intensity data.")
@@ -1049,7 +1296,7 @@ def generate_voxel_from_mesh(
     if not mesh.has_triangles() or not mesh.has_vertices():
         raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
 
-    if base_pottery_pcd is not None:        
+    if base_pottery_pcd is not None:
         
         base_pottery_pcd = o3d.io.read_point_cloud(base_pottery_pcd)
         
@@ -1081,7 +1328,6 @@ def generate_voxel_from_mesh(
         a, b, c = hit_tri_vertices[:, 0], hit_tri_vertices[:, 1], hit_tri_vertices[:, 2]
 
         # 3. Calculate barycentric coordinates (u, v, w) using the point and triangle vertices.
-        #    This is the same robust, vectorized calculation as before.
         v0, v1 = b - a, c - a
         v2 = closest_surface_points - a
 
@@ -1124,9 +1370,6 @@ def generate_voxel_from_mesh(
 
         return heatmap_pcd
 
-    # ==============================================================================
-    # === ORIGINAL LOGIC: Kept for when no base pottery is provided              ===
-    # ==============================================================================
     else:
         # Initial Setup (Vectorized)
         mesh_vertices_np = np.asarray(mesh.vertices)
@@ -1241,7 +1484,7 @@ def generate_voxel_from_mesh(
 
 
 # yapf: disable
-def process_questionnaire_answeres(
+def process_questionnaire_answers(
     input_file,
     model_file,
     base_color,
@@ -1334,6 +1577,186 @@ def process_questionnaire_answeres(
         qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = segmented_mesh
 
     return qa_pcd, qa_segmented_meshes, combined_mesh
+
+# def _create_base_dot_geometry(size):
+#   """Creates the base dot geometry (a sphere) at the origin."""
+#   # Create a sphere with the given radius (size)
+#   marker = o3d.geometry.TriangleMesh.create_sphere(radius=size)
+#   # It's good practice to compute normals for proper lighting and shading
+#   marker.compute_vertex_normals()
+#   return marker
+
+# def _create_base_square_geometry(size):
+#     """Creates the base cube geometry at the origin."""
+#     marker = o3d.geometry.TriangleMesh.create_box(width=size, height=size, depth=size)
+#     marker.compute_vertex_normals()
+#     return marker
+
+# def _create_base_triangle_geometry(size):
+#     """Creates the base tetrahedron geometry at the origin."""
+#     marker = o3d.geometry.TriangleMesh.create_tetrahedron(radius=size)
+#     marker.compute_vertex_normals()
+#     return marker
+
+# # def _create_base_star_geometry(size):
+# #     """Creates the base star (bipyramid) geometry at the origin."""
+# #     pyramid = o3d.geometry.TriangleMesh.create_cone(radius=size, height=size * 0.75, resolution=5, split=1)
+# #     inverted_pyramid = deepcopy(pyramid)
+# #     flip_rotation = o3d.geometry.get_rotation_matrix_from_xyz((np.pi, 0, 0))
+# #     inverted_pyramid.rotate(flip_rotation, center=(0, 0, 0))
+# #     marker = pyramid + inverted_pyramid
+# #     marker.compute_vertex_normals()
+# #     return marker
+
+# def _create_diamond_geometry(size):
+#     """Creates a diamond (octahedron) geometry at the origin."""
+#     diamond = o3d.geometry.TriangleMesh.create_octahedron(radius=size)
+    
+#     diamond.compute_vertex_normals()
+    
+#     return diamond
+
+# def _create_base_x_geometry(size):
+#     """Creates the base 3D 'X' geometry at the origin."""
+#     thickness = size / 4.0
+#     arm1 = o3d.geometry.TriangleMesh.create_box(width=size, height=thickness, depth=thickness)
+#     arm2 = deepcopy(arm1)
+#     rotation_z_45_pos = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi / 4))
+#     rotation_z_45_neg = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, -np.pi / 4))
+#     arm1.rotate(rotation_z_45_pos, center=(0, 0, 0))
+#     arm2.rotate(rotation_z_45_neg, center=(0, 0, 0))
+#     marker_bottom = arm1 + arm2
+#     marker_top = deepcopy(marker_bottom)
+#     marker_top.rotate(o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi)), center=(0, 0, 0))
+#     marker_top.translate((0, thickness, 0))
+#     marker = marker_bottom + marker_top
+#     rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, np.pi / 2, 0))
+#     marker.rotate(rotation_y_90, center=(0, 0, 0))
+#     marker.compute_vertex_normals()
+#     return marker
+
+# def process_questionnaire_answers(
+#     input_file: str,
+#     model_file: str,
+#     base_color: list,
+#     qna_answer_color_map: dict,
+#     hololens_2_spatial_error: float,
+#     gaussian_denominator: float,
+#     marker_size: float = 0.5,
+# ):
+#     """
+#     Processes questionnaire data efficiently by generating shape templates once
+#     and reusing them for all points.
+#     """
+#     # --- 1. Create Base Geometries (Templates) ---
+#     # This is done only ONCE per shape type for maximum efficiency.
+#     base_geometry_cache = {
+#         'dot': _create_base_dot_geometry(marker_size),
+#         'square': _create_base_square_geometry(marker_size),
+#         'triangle': _create_base_triangle_geometry(marker_size),
+#         'diamond': _create_diamond_geometry(marker_size),
+#         'x': _create_base_x_geometry(marker_size),
+#     }
+
+#     # Map answers to the string key of the geometry cache
+#     QNA_SHAPE_KEY_MAP = {
+#         "面白い・気になる形だ": 'diamond',
+#         "美しい・芸術的だ": 'square',
+#         "不思議・意味不明": 'triangle',
+#         "不気味・不安・怖い": 'x',
+#         "何も感じない": 'dot',
+#     }
+
+#     df = pd.read_csv(input_file, header=0, sep=",")
+#     df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
+    
+#     mesh = o3d.io.read_triangle_mesh(model_file)
+#     if not mesh.has_vertices():
+#         raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
+
+#     # --- 2. Place Shape Instances ---
+#     all_marker_meshes = []
+#     # Group by answer to handle one color/shape combo at a time
+#     for answer, group_df in tqdm(df.groupby("answer"), desc="Placing Shape Instances", leave=False):
+#         if answer not in qna_answer_color_map: continue
+        
+#         # Get the template geometry for this category
+#         shape_key = QNA_SHAPE_KEY_MAP.get(answer, 'dot')
+#         template_mesh = base_geometry_cache[shape_key]
+        
+#         # Get the color for this category
+#         color_vec = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
+        
+#         # For each point, copy the template, color it, and move it
+#         for point in group_df[["estX", "estY", "estZ"]].values:
+#             # Create a fresh copy to avoid moving the original template
+#             marker_instance = deepcopy(template_mesh)
+#             marker_instance.paint_uniform_color(color_vec)
+#             marker_instance.translate(point, relative=False)
+#             all_marker_meshes.append(marker_instance)
+            
+#     # Combine all the placed instances into a single mesh
+#     shaped_qna_mesh = o3d.geometry.TriangleMesh()
+#     for m in all_marker_meshes:
+#         shaped_qna_mesh += m
+
+#     # --- 3. Create Colored and Segmented Meshes (Gaussian Spread) ---
+#     # (This part remains the same as your original code)
+#     mesh_vertices_np = np.asarray(mesh.vertices)
+#     mesh_triangles_np = np.asarray(mesh.triangles)
+#     n_vertices = mesh_vertices_np.shape[0]
+#     mesh_kdtree = o3d.geometry.KDTreeFlann(mesh)
+#     mesh_scene = o3d.t.geometry.RaycastingScene()
+#     mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+
+#     final_colors = np.zeros((n_vertices, 3), dtype=float)
+#     total_weights = np.zeros(n_vertices, dtype=float)
+#     unique_answers = df["answer"].unique()
+#     all_hit_vertices_by_answer = {}
+#     qa_segmented_meshes = {}
+
+#     for answer in unique_answers:
+#         if answer not in qna_answer_color_map: continue
+#         category_df = df[df["answer"] == answer]
+#         category_points = category_df[["estX", "estY", "estZ"]].values
+#         color_vector = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
+#         query_points = o3d.core.Tensor(category_points, dtype=o3d.core.Dtype.Float32)
+#         closest_geometry = mesh_scene.compute_closest_points(query_points)
+#         closest_face_indices = closest_geometry["primitive_ids"].numpy()
+#         hit_vertices = set()
+#         for face_idx in closest_face_indices:
+#             if face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
+#                 hit_vertices.update(mesh_triangles_np[face_idx])
+#         all_hit_vertices_by_answer[answer] = list(hit_vertices)
+
+#         for start_node_idx in tqdm(list(hit_vertices), desc=f"Applying Gaussian for {answer}", leave=False):
+#             [k, indices, sq_dist] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+#             if k > 0:
+#                 gaussian_weights = np.exp(-np.asarray(sq_dist) / gaussian_denominator)
+#                 final_colors[indices] += color_vector * gaussian_weights[:, np.newaxis]
+#                 total_weights[indices] += gaussian_weights
+
+#     valid_weights_mask = total_weights > 1e-9
+#     final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
+#     final_colors[~valid_weights_mask] = base_color
+    
+#     combined_gaussian_mesh = o3d.geometry.TriangleMesh(mesh)
+#     combined_gaussian_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
+
+#     for answer, hit_vertices in tqdm(all_hit_vertices_by_answer.items(), desc="Making Segmented Maps", leave=False):
+#         color_info = qna_answer_color_map[answer]
+#         color_vec = np.array(color_info["rgb"]) / 255.0
+#         segmented_colors = np.full((n_vertices, 3), base_color, dtype=float)
+#         all_affected_indices = set()
+#         for start_node_idx in hit_vertices:
+#             [k, indices, _] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+#             if k > 0: all_affected_indices.update(indices)
+#         segmented_colors[list(all_affected_indices)] = color_vec
+#         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
+#         segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
+#         qa_segmented_meshes[color_info["name"]] = segmented_mesh
+
+#     return shaped_qna_mesh, qa_segmented_meshes, combined_gaussian_mesh
 # yapf: enable
 
 

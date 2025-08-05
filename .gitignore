@@ -4,6 +4,7 @@ archive
 
 data
 pottery
+processed
 
 *.pth
 *.csv
