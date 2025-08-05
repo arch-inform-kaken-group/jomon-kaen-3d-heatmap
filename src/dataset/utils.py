@@ -28,6 +28,7 @@ import trimesh  # For voxelizing pottery and dogu with color
 from copy import deepcopy
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -53,9 +54,11 @@ DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
 # Colors
 # Gaze duration gradient from bright Cyan to dark Red
-# cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
-# DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
-DEFAULT_CMAP = plt.get_cmap('jet')
+cyan_to_dark_red_colors = [(0.0, 1.0, 1.0),
+                           (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
+DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red",
+                                                 cyan_to_dark_red_colors)
+# DEFAULT_CMAP = plt.get_cmap('jet')
 DEFAULT_BASE_COLOR = [0.0, 0.0, 0.0]
 
 # Pottery & Dogu assigned numbers
@@ -152,7 +155,7 @@ ASSIGNED_NUMBERS_DICT = {
     'NZ0001': '90',
     'SK0035': '91',
     'TK0020': '92',
-    'UD0028': '93'
+    'UD0028': '93',
 }
 
 # QNA Answer Color
@@ -348,10 +351,165 @@ def _calculate_smoothed_vertex_intensities(
     return interpolated_heatmap_values, point_to_face_map
 # yapf: enable
 
+def generate_gaze_visualizations_from_files(
+    gaze_csv_path,
+    model_path,
+    output_pointcloud_path,
+    output_heatmap_path,
+    output_colorbar_path,
+    hololens_2_spatial_error=DEFAULT_HOLOLENS_2_SPATIAL_ERROR,
+):
+    """
+    Processes gaze data to generate and save a duration-based heatmap, a colored
+    point cloud, and a color bar legend.
+
+    This function encapsulates the entire workflow:
+    1. Reads gaze data (with timestamps) and a 3D model from file paths.
+    2. Calculates gaze duration and aggregates it onto the model's vertices.
+    3. Applies a Gaussian spread to create a smooth heatmap.
+    4. Generates and saves a colored point cloud.
+    5. Generates and saves a colored heatmap mesh.
+    6. Generates and saves a color bar image corresponding to the heatmap.
+
+    Args:
+        gaze_csv_path (str): Path to the input CSV file with gaze data.
+                             Must have columns [x, y, z, timestamp].
+        model_path (str): Path to the input 3D model file (e.g., .obj, .ply).
+        output_pointcloud_path (str): Path to save the output colored point cloud (.ply).
+        output_heatmap_path (str): Path to save the output heatmap mesh (.ply).
+        output_colorbar_path (str): Path to save the output color bar image (.png).
+        hololens_2_spatial_error (float): Spatial error of the eye tracker for Gaussian spread.
+    """
+    # --- Setup ---
+    gaussian_denominator = 2 * (hololens_2_spatial_error**2)
+    base_color = [0.0, 0.0, 0.0]
+    cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]
+    cmap = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
+
+    # --- 1. Load Data ---
+    try:
+        data = pd.read_csv(gaze_csv_path, header=0).to_numpy()
+        if data.shape[1] < 4:
+            raise ValueError("Input CSV must have at least 4 columns: x, y, z, timestamp.")
+    except FileNotFoundError:
+        print(f"Error: Gaze data file not found at {gaze_csv_path}", file=sys.stderr)
+        return
+
+    try:
+        mesh = o3d.io.read_triangle_mesh(model_path)
+        if not mesh.has_vertices():
+            raise ValueError(f"Mesh file '{model_path}' contains no vertices.")
+        mesh.compute_vertex_normals()
+    except Exception as e:
+        print(f"Error: Could not read or process model file at {model_path}: {e}", file=sys.stderr)
+        return
+
+    # --- 2. Calculate Gaze Durations and Aggregate on Mesh ---
+    gaze_points_np = data[:, :3]
+    timestamps = data[:, 3]
+    durations = np.diff(timestamps)
+    durations = np.append(durations, durations[-1])
+
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    n_vertices = mesh_vertices_np.shape[0]
+
+    mesh_scene = o3d.t.geometry.RaycastingScene()
+    mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+    query_points = o3d.core.Tensor(gaze_points_np, dtype=o3d.core.Dtype.Float32)
+    closest_geometry = mesh_scene.compute_closest_points(query_points)
+    closest_face_indices = closest_geometry['primitive_ids'].numpy()
+
+    raw_gaze_duration = np.zeros(n_vertices, dtype=np.float64)
+    point_to_face_map = np.empty(gaze_points_np.shape[0], dtype=int)
+
+    for i, closest_face_idx in enumerate(closest_face_indices):
+        if closest_face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
+            point_to_face_map[i] = closest_face_idx
+            for v_idx in mesh_triangles_np[closest_face_idx]:
+                raw_gaze_duration[v_idx] += 0.03 # Only 30ms for each point since the person may not always be looking at the pottery
+
+    # --- 3. Apply Smoothing and Spreading ---
+    log_scaled_duration = np.log1p(raw_gaze_duration)
+    kdtree = o3d.geometry.KDTreeFlann(mesh)
+    final_vertex_intensities = np.copy(log_scaled_duration)
+    hit_vertices_indices = np.where(log_scaled_duration > 0)[0]
+
+    for start_node_idx in tqdm(hit_vertices_indices, desc="Applying Gaussian Spread", leave=False):
+        hit_value = log_scaled_duration[start_node_idx]
+        [k, indices, euclidean_dist] = kdtree.search_radius_vector_3d(
+            mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+        if k > 1:
+            gaussian_weights = np.exp(-np.asarray(euclidean_dist)**2 / gaussian_denominator)
+            for i, neighbor_idx in enumerate(indices):
+                if neighbor_idx != start_node_idx:
+                    final_vertex_intensities[neighbor_idx] += hit_value * gaussian_weights[i]
+
+    # --- 4. Generate and Save Color Bar ---
+    min_gaze_duration = np.min(raw_gaze_duration[raw_gaze_duration > 0]) if np.any(raw_gaze_duration > 0) else 0
+    max_gaze_duration = np.max(raw_gaze_duration)
+
+    fig, ax = plt.subplots(figsize=(2, 8))
+    norm = matplotlib.colors.Normalize(vmin=min_gaze_duration, vmax=max_gaze_duration)
+    cb = matplotlib.colorbar.ColorbarBase(ax, cmap=cmap, norm=norm, orientation='vertical')
+    cb.set_label('Total Gaze Duration (s)', size=14, weight='bold', labelpad=15)
+    tick_values = np.linspace(min_gaze_duration, max_gaze_duration, num=5)
+    cb.set_ticks(tick_values)
+    cb.set_ticklabels([f'{val:.2f} s' for val in tick_values])
+    cb.ax.tick_params(labelsize=12, length=8, width=1.5)
+
+    try:
+        os.makedirs(os.path.dirname(output_colorbar_path), exist_ok=True)
+        fig.savefig(output_colorbar_path, bbox_inches='tight', dpi=100, transparent=False)
+        plt.close(fig)
+        print(f"Successfully generated color bar at: {output_colorbar_path}")
+    except Exception as e:
+        print(f"Error saving color bar image: {e}", file=sys.stderr)
+
+
+    # --- 5. Generate and Save Heatmap Mesh ---
+    max_intensity = np.max(final_vertex_intensities)
+    normalized_intensities = final_vertex_intensities / max_intensity if max_intensity > 1e-9 else np.zeros_like(final_vertex_intensities)
+    mesh_vertex_colors = cmap(normalized_intensities)[:, :3]
+    mesh_vertex_colors[final_vertex_intensities < 1e-9] = base_color
+    mesh.vertex_colors = o3d.utility.Vector3dVector(mesh_vertex_colors)
+
+    try:
+        os.makedirs(os.path.dirname(output_heatmap_path), exist_ok=True)
+        o3d.io.write_triangle_mesh(output_heatmap_path, mesh, write_ascii=True)
+        print(f"Successfully saved heatmap mesh to: {output_heatmap_path}")
+    except Exception as e:
+        print(f"Error saving heatmap mesh: {e}", file=sys.stderr)
+
+
+    # --- 6. Generate and Save Point Cloud ---
+    final_point_intensities = []
+    for face_idx in point_to_face_map:
+        final_point_intensities.append(np.mean(final_vertex_intensities[mesh_triangles_np[face_idx]]))
+    final_point_intensities = np.array(final_point_intensities)
+
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(gaze_points_np))
+    max_point_intensity = np.max(final_point_intensities)
+    normalized_point_intensities = final_point_intensities / max_point_intensity if max_point_intensity > 1e-9 else np.zeros_like(final_point_intensities)
+
+    pc_colors = cmap(normalized_point_intensities)[:, :3]
+    pc_colors[final_point_intensities < 1e-9] = base_color
+    pcd.colors = o3d.utility.Vector3dVector(pc_colors)
+
+    try:
+        os.makedirs(os.path.dirname(output_pointcloud_path), exist_ok=True)
+        o3d.io.write_point_cloud(output_pointcloud_path, pcd, write_ascii=True)
+        print(f"Successfully saved point cloud to: {output_pointcloud_path}")
+    except Exception as e:
+        print(f"Error saving point cloud: {e}", file=sys.stderr)
+
+
 ### UTILS ###
+
 
 def get_pottery_id_list():
     return [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
+
 
 def increment_error(key, path, errors: dict):
     if errors.get(key) == None:
@@ -387,7 +545,7 @@ def save_geometry_threaded(save_path, geometry, error_queue):
             o3d.utility.set_verbosity_level(original_verbosity)
 
     save_thread = threading.Thread(target=_save_geometry,
-                                     args=(save_path, geometry, error_queue))
+                                   args=(save_path, geometry, error_queue))
     save_thread.daemon = True
     save_thread.start()
     return save_thread
@@ -407,12 +565,15 @@ def save_plot_threaded(output_plot_path, fig, error_queue):
             print(f"\nError saving plot to {save_path}: {e}")
             errq.put({'Save plot error': save_path})
 
-    plot_thread = threading.Thread(target=_save_plot, args=(output_plot_path, fig, error_queue))
+    plot_thread = threading.Thread(target=_save_plot,
+                                   args=(output_plot_path, fig, error_queue))
     plot_thread.daemon = True
     plot_thread.start()
     return plot_thread
 
+
 from pydub import AudioSegment
+
 
 # yapf: disable
 def filter_data_on_condition(
@@ -632,6 +793,7 @@ def filter_data_on_condition(
                 elif pottery_dogu_path == "":
                     continue
                 else:
+                    data_paths['PROCESSED_DATA'] = str(processed_pottery_path)
                     data_paths['GROUP'] = g
                     data_paths['SESSION_ID'] = s
                     data_paths['ID'] = p
@@ -721,7 +883,7 @@ def filter_data_on_condition(
 
             original_pointcloud = generate_original_pointcloud(input_file=data_paths['pointcloud'])
             active_threads.append(save_geometry_threaded(data_paths[original_pointcloud_filename], original_pointcloud, error_queue))
-            
+
             if generate_pc_hm_voxel:
                 # Eye gaze intensity point cloud & heatmap
                 # Eye gaze voxel
@@ -752,6 +914,14 @@ def filter_data_on_condition(
                     active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
             if generate_fixation:
+                generate_gaze_visualizations_from_files(
+                    gaze_csv_path=data_paths['pointcloud'],
+                    model_path=data_paths['model'],
+                    output_colorbar_path=data_paths['PROCESSED_DATA']+"/cb.png",
+                    output_pointcloud_path=data_paths['PROCESSED_DATA']+"/gaze_duration_pc.ply",
+                    output_heatmap_path=data_paths['PROCESSED_DATA']+"/gaze_duration_hm.ply"
+                )
+
                 fixation_pointcloud, fixation_heatmap = generate_fixation_pointcloud_heatmap(
                     input_file=data_paths['pointcloud'],
                     model_file=data_paths['model'],
@@ -949,7 +1119,7 @@ def generate_gaze_pointcloud_heatmap(
 
     # 2. Create grayscale colors by repeating the intensity value for R, G, and B channels
     greyscale_colors = np.repeat(normalized_vertex_intensities[:, np.newaxis], 3, axis=1)
-    
+
     # 3. Assign the new grayscale colors to the copied mesh
     mesh_greyscale.vertex_colors = o3d.utility.Vector3dVector(greyscale_colors)
 
@@ -971,7 +1141,9 @@ def generate_gaze_pointcloud_heatmap(
     return pcd, mesh, final_vertex_intensities, mesh_greyscale
 # yapf: enable
 
-def generate_original_pointcloud(input_file: str, jitter_std_dev: float = 0.015):
+
+def generate_original_pointcloud(input_file: str,
+                                 jitter_std_dev: float = 0.015):
     """
     Loads 3D gaze points from a CSV and adds a small amount of Gaussian jitter.
 
@@ -994,7 +1166,9 @@ def generate_original_pointcloud(input_file: str, jitter_std_dev: float = 0.015)
         # Read the first 3 columns (X, Y, Z) from the CSV
         data = pd.read_csv(input_file, header=0, usecols=[0, 1, 2]).to_numpy()
     except (FileNotFoundError, pd.errors.EmptyDataError, ValueError) as e:
-        print(f"Warning: Could not read or parse {input_file}: {e}. Returning empty point cloud.")
+        print(
+            f"Warning: Could not read or parse {input_file}: {e}. Returning empty point cloud."
+        )
         return o3d.geometry.PointCloud()
 
     gaze_points_np = data
@@ -1006,13 +1180,17 @@ def generate_original_pointcloud(input_file: str, jitter_std_dev: float = 0.015)
     # Generate Gaussian noise with the same shape as the data
     # loc=0.0 means the noise is centered around zero (no systematic drift)
     # scale=jitter_std_dev controls the amount of spread
-    noise = np.random.normal(loc=0.0, scale=jitter_std_dev, size=gaze_points_np.shape)
+    noise = np.random.normal(loc=0.0,
+                             scale=jitter_std_dev,
+                             size=gaze_points_np.shape)
 
     # Add the noise to the original points to create the jittered effect
     jittered_points_np = gaze_points_np + noise
 
     # Create and return the Open3D PointCloud from the new jittered data
-    return o3d.geometry.PointCloud(o3d.utility.Vector3dVector(jittered_points_np))
+    return o3d.geometry.PointCloud(
+        o3d.utility.Vector3dVector(jittered_points_np))
+
 
 # yapf: disable
 def generate_fixation_pointcloud_heatmap(
@@ -1114,10 +1292,10 @@ def generate_fixation_pointcloud_heatmap(
     if len(fixated_indices) > 0:
         # Clip durations at 1.5s for normalization
         clipped_vertex_durations = np.clip(vertex_durations, 0.0, 1.0)
-        
+
         # Use a fixed normalization scale from 0 to 1.5 seconds (1500ms)
         norm = plt.Normalize(vmin=0.0, vmax=1.0)
-        
+
         # Normalize only the vertices that were actually hit
         heatmap_colors = cmap(norm(clipped_vertex_durations[fixated_indices]))[:, :3]
 
@@ -1182,7 +1360,7 @@ def generate_fixation_pointcloud_heatmap(
 #     # The number of samples is proportional to the triangle's area
 #     # AREA = 1/2 * ||E1 x E2||
 #     triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
-    
+
 #     # Number of sample, with minimum of 10, to ensure small triangles get sample as well
 #     num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
 #     total_samples = np.sum(num_samples_per_triangle)
@@ -1212,7 +1390,7 @@ def generate_fixation_pointcloud_heatmap(
 #     # Fold points from outside the triangles= back inside
 #     # i.e. [(0.2, 0.4), (0.3, 0.4)]
 #     rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
-    
+
 #     # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
 #     # Barycentric coordinates are weights for each vertex, summing to 1
 #     # u + v + w = 1
@@ -1241,7 +1419,7 @@ def generate_fixation_pointcloud_heatmap(
 #     # Create a DataFrame to hold voxel coordinates and their intensities
 #     df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
 #     df['intensity'] = all_interpolated_intensities
-    
+
 #     # Use groupby().max() to find the maximum intensity for each unique voxel
 #     voxel_data_df = df.groupby(['x', 'y', 'z'])['intensity'].max()
 
@@ -1251,14 +1429,14 @@ def generate_fixation_pointcloud_heatmap(
 
 #     # Calculate world coordinates of voxel centers
 #     voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
-    
+
 #     # Normalize and apply colormap
 #     max_val = np.max(final_intensities_np)
 #     if max_val > 1e-9:
 #         normalized_intensities = final_intensities_np / max_val
 #     else:
 #         normalized_intensities = np.zeros_like(final_intensities_np)
-        
+
 #     colors = cmap(normalized_intensities)[:, :3]
 #     colors[normalized_intensities < 1e-9] = base_color
 
@@ -1297,9 +1475,9 @@ def generate_voxel_from_mesh(
         raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
 
     if base_pottery_pcd is not None:
-        
+
         base_pottery_pcd = o3d.io.read_point_cloud(base_pottery_pcd)
-        
+
         num_pottery_points = len(base_pottery_pcd.points)
         if num_pottery_points == 0:
             print("WARNING: Input pottery point cloud is empty.")
@@ -1320,7 +1498,7 @@ def generate_voxel_from_mesh(
         #    'points' = The 3D coordinate of that closest point on the surface.
         triangle_ids = closest_points_ans['primitive_ids'].numpy()
         closest_surface_points = closest_points_ans['points'].numpy()
-        
+
         # 2. Get the three vertices (a, b, c) for each identified triangle.
         mesh_vertices = np.asarray(mesh.vertices)
         mesh_triangles = np.asarray(mesh.triangles)
@@ -1340,13 +1518,13 @@ def generate_voxel_from_mesh(
         denom = d00 * d11 - d01 * d01
         # Add a small epsilon to the denominator to prevent division by zero for degenerate triangles
         denom[np.abs(denom) < 1e-9] = 1e-9
-        
+
         v = (d11 * d20 - d01 * d21) / denom
         w = (d00 * d21 - d01 * d20) / denom
         u = 1.0 - v - w
 
         bary_coords = np.vstack([u, v, w]).T
-                
+
         # 4. Interpolate the intensity using our manually calculated coordinates.
         tri_intensities = vertex_intensities[mesh_triangles[triangle_ids]]
         final_intensities = np.einsum('ij,ij->i', bary_coords, tri_intensities)
@@ -1394,7 +1572,7 @@ def generate_voxel_from_mesh(
         # The number of samples is proportional to the triangle's area
         # AREA = 1/2 * ||E1 x E2||
         triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
-        
+
         # Number of sample, with minimum of 10, to ensure small triangles get sample as well
         num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
         total_samples = np.sum(num_samples_per_triangle)
@@ -1424,7 +1602,7 @@ def generate_voxel_from_mesh(
         # Fold points from outside the triangles= back inside
         # i.e. [(0.2, 0.4), (0.3, 0.4)]
         rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
-        
+
         # Convert the random points into barycentric coordinates (u, w, v) | (w0, w1, w2)
         # Barycentric coordinates are weights for each vertex, summing to 1
         # u + v + w = 1
@@ -1453,7 +1631,7 @@ def generate_voxel_from_mesh(
         # Create a DataFrame to hold voxel coordinates and their intensities
         df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
         df['intensity'] = all_interpolated_intensities
-        
+
         # Use groupby().max() to find the maximum intensity for each unique voxel
         voxel_data_df = df.groupby(['x', 'y', 'z'])['intensity'].max()
 
@@ -1470,7 +1648,7 @@ def generate_voxel_from_mesh(
             normalized_intensities = final_intensities_np / max_val
         else:
             normalized_intensities = np.zeros_like(final_intensities_np)
-            
+
         colors = cmap(normalized_intensities)[:, :3]
         colors[normalized_intensities < 1e-9] = base_color
 
@@ -1484,227 +1662,39 @@ def generate_voxel_from_mesh(
 
 
 # yapf: disable
-def process_questionnaire_answers(
-    input_file,
-    model_file,
-    base_color,
-    qna_answer_color_map,
-    hololens_2_spatial_error,
-    gaussian_denominator,
-):
-    qa_segmented_meshes = {}
-
-    df = pd.read_csv(input_file, header=0, sep=",")
-    df["estX"] = pd.to_numeric(df["estX"], errors="coerce")
-    df["estY"] = pd.to_numeric(df["estY"], errors="coerce")
-    df["estZ"] = pd.to_numeric(df["estZ"], errors="coerce")
-    df["answer"] = df["answer"].astype(str).str.strip()
-    df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
-    mesh = o3d.io.read_triangle_mesh(model_file)
-    if not mesh.has_vertices():
-        raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
-
-    # Segmented QNA mesh
-    mesh_vertices_np = np.asarray(mesh.vertices)
-    mesh_triangles_np = np.asarray(mesh.triangles)
-    n_vertices = mesh_vertices_np.shape[0]
-
-    qa_points = df[["estX", "estY", "estZ"]].values
-    qa_colors_01 = []
-    for answer in df["answer"]:
-        qa_colors_01.append(qna_answer_color_map.get(answer)["rgb"])
-    qa_colors_01 = np.array(qa_colors_01) / 255.0
-    qa_pcd = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(qa_points))
-    qa_pcd.colors = o3d.utility.Vector3dVector(np.array(qa_colors_01))
-
-    mesh_kdtree = o3d.geometry.KDTreeFlann(mesh)
-    mesh_scene = o3d.t.geometry.RaycastingScene()
-    mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
-
-    final_colors = np.zeros((n_vertices, 3), dtype=float)
-    total_weights = np.zeros(n_vertices, dtype=float)
-    unique_answers = df["answer"].unique()
-    all_hit_vertices_by_answer = {}
-
-    for answer in unique_answers:
-        category_df = df[df["answer"] == answer]
-        category_points = category_df[["estX", "estY", "estZ"]].values
-        color_vector = np.array(qna_answer_color_map.get(answer)["rgb"]) / 255.0
-        hit_vertices = set()
-
-        query_points = o3d.core.Tensor(category_points, dtype=o3d.core.Dtype.Float32)
-        closest_geometry = mesh_scene.compute_closest_points(query_points)
-        closest_face_indices = closest_geometry["primitive_ids"].numpy()
-
-        for closest_face_idx in tqdm(closest_face_indices, desc=f"{answer} | Mapping Hits", leave=False):
-            if closest_face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
-                for v_idx in mesh_triangles_np[closest_face_idx]:
-                    hit_vertices.add(v_idx)
-        all_hit_vertices_by_answer[answer] = hit_vertices
-
-        for start_node_idx in tqdm(list(hit_vertices), desc="Applying Gaussian Spread", leave=False):
-            # Find all vertices within the specified radius
-            [k, indices, euclidean_distance] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
-
-            if k > 0:
-                # Calculate Gaussian weights based on squared Euclidean distance
-                gaussian_weights = np.exp(-np.asarray(euclidean_distance)**2 / gaussian_denominator)
-
-                # Apply weighted colors to all neighbors found in the radius
-                final_colors[indices] += color_vector * gaussian_weights[:, np.newaxis]
-                total_weights[indices] += gaussian_weights
-
-    valid_weights_mask = total_weights > 1e-9
-    final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
-    final_colors[~valid_weights_mask] = base_color # Negation of bool mask
-
-    combined_mesh = o3d.geometry.TriangleMesh(mesh)
-    combined_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
-
-    for answer, hit_vertices in tqdm(all_hit_vertices_by_answer.items(), desc="Making Segmented Maps", leave=False):
-        color_info = qna_answer_color_map.get(answer)
-        color_vec = np.array(color_info["rgb"]) / 255.0
-        segmented_colors = np.zeros((n_vertices, 3), dtype=float)
-
-        for start_node_idx in list(hit_vertices):
-            [k, indices, _] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
-            if k > 0:
-                # Assign the solid color to all vertices found within the radius
-                segmented_colors[indices] = color_vec
-
-        segmented_mesh = o3d.geometry.TriangleMesh(mesh)
-        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
-        qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = segmented_mesh
-
-    return qa_pcd, qa_segmented_meshes, combined_mesh
-
-# def _create_base_dot_geometry(size):
-#   """Creates the base dot geometry (a sphere) at the origin."""
-#   # Create a sphere with the given radius (size)
-#   marker = o3d.geometry.TriangleMesh.create_sphere(radius=size)
-#   # It's good practice to compute normals for proper lighting and shading
-#   marker.compute_vertex_normals()
-#   return marker
-
-# def _create_base_square_geometry(size):
-#     """Creates the base cube geometry at the origin."""
-#     marker = o3d.geometry.TriangleMesh.create_box(width=size, height=size, depth=size)
-#     marker.compute_vertex_normals()
-#     return marker
-
-# def _create_base_triangle_geometry(size):
-#     """Creates the base tetrahedron geometry at the origin."""
-#     marker = o3d.geometry.TriangleMesh.create_tetrahedron(radius=size)
-#     marker.compute_vertex_normals()
-#     return marker
-
-# # def _create_base_star_geometry(size):
-# #     """Creates the base star (bipyramid) geometry at the origin."""
-# #     pyramid = o3d.geometry.TriangleMesh.create_cone(radius=size, height=size * 0.75, resolution=5, split=1)
-# #     inverted_pyramid = deepcopy(pyramid)
-# #     flip_rotation = o3d.geometry.get_rotation_matrix_from_xyz((np.pi, 0, 0))
-# #     inverted_pyramid.rotate(flip_rotation, center=(0, 0, 0))
-# #     marker = pyramid + inverted_pyramid
-# #     marker.compute_vertex_normals()
-# #     return marker
-
-# def _create_diamond_geometry(size):
-#     """Creates a diamond (octahedron) geometry at the origin."""
-#     diamond = o3d.geometry.TriangleMesh.create_octahedron(radius=size)
-    
-#     diamond.compute_vertex_normals()
-    
-#     return diamond
-
-# def _create_base_x_geometry(size):
-#     """Creates the base 3D 'X' geometry at the origin."""
-#     thickness = size / 4.0
-#     arm1 = o3d.geometry.TriangleMesh.create_box(width=size, height=thickness, depth=thickness)
-#     arm2 = deepcopy(arm1)
-#     rotation_z_45_pos = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi / 4))
-#     rotation_z_45_neg = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, -np.pi / 4))
-#     arm1.rotate(rotation_z_45_pos, center=(0, 0, 0))
-#     arm2.rotate(rotation_z_45_neg, center=(0, 0, 0))
-#     marker_bottom = arm1 + arm2
-#     marker_top = deepcopy(marker_bottom)
-#     marker_top.rotate(o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi)), center=(0, 0, 0))
-#     marker_top.translate((0, thickness, 0))
-#     marker = marker_bottom + marker_top
-#     rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, np.pi / 2, 0))
-#     marker.rotate(rotation_y_90, center=(0, 0, 0))
-#     marker.compute_vertex_normals()
-#     return marker
-
 # def process_questionnaire_answers(
-#     input_file: str,
-#     model_file: str,
-#     base_color: list,
-#     qna_answer_color_map: dict,
-#     hololens_2_spatial_error: float,
-#     gaussian_denominator: float,
-#     marker_size: float = 0.5,
+#     input_file,
+#     model_file,
+#     base_color,
+#     qna_answer_color_map,
+#     hololens_2_spatial_error,
+#     gaussian_denominator,
 # ):
-#     """
-#     Processes questionnaire data efficiently by generating shape templates once
-#     and reusing them for all points.
-#     """
-#     # --- 1. Create Base Geometries (Templates) ---
-#     # This is done only ONCE per shape type for maximum efficiency.
-#     base_geometry_cache = {
-#         'dot': _create_base_dot_geometry(marker_size),
-#         'square': _create_base_square_geometry(marker_size),
-#         'triangle': _create_base_triangle_geometry(marker_size),
-#         'diamond': _create_diamond_geometry(marker_size),
-#         'x': _create_base_x_geometry(marker_size),
-#     }
-
-#     # Map answers to the string key of the geometry cache
-#     QNA_SHAPE_KEY_MAP = {
-#         "面白い・気になる形だ": 'diamond',
-#         "美しい・芸術的だ": 'square',
-#         "不思議・意味不明": 'triangle',
-#         "不気味・不安・怖い": 'x',
-#         "何も感じない": 'dot',
-#     }
+#     qa_segmented_meshes = {}
 
 #     df = pd.read_csv(input_file, header=0, sep=",")
+#     df["estX"] = pd.to_numeric(df["estX"], errors="coerce")
+#     df["estY"] = pd.to_numeric(df["estY"], errors="coerce")
+#     df["estZ"] = pd.to_numeric(df["estZ"], errors="coerce")
+#     df["answer"] = df["answer"].astype(str).str.strip()
 #     df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
-    
 #     mesh = o3d.io.read_triangle_mesh(model_file)
 #     if not mesh.has_vertices():
 #         raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
 
-#     # --- 2. Place Shape Instances ---
-#     all_marker_meshes = []
-#     # Group by answer to handle one color/shape combo at a time
-#     for answer, group_df in tqdm(df.groupby("answer"), desc="Placing Shape Instances", leave=False):
-#         if answer not in qna_answer_color_map: continue
-        
-#         # Get the template geometry for this category
-#         shape_key = QNA_SHAPE_KEY_MAP.get(answer, 'dot')
-#         template_mesh = base_geometry_cache[shape_key]
-        
-#         # Get the color for this category
-#         color_vec = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
-        
-#         # For each point, copy the template, color it, and move it
-#         for point in group_df[["estX", "estY", "estZ"]].values:
-#             # Create a fresh copy to avoid moving the original template
-#             marker_instance = deepcopy(template_mesh)
-#             marker_instance.paint_uniform_color(color_vec)
-#             marker_instance.translate(point, relative=False)
-#             all_marker_meshes.append(marker_instance)
-            
-#     # Combine all the placed instances into a single mesh
-#     shaped_qna_mesh = o3d.geometry.TriangleMesh()
-#     for m in all_marker_meshes:
-#         shaped_qna_mesh += m
-
-#     # --- 3. Create Colored and Segmented Meshes (Gaussian Spread) ---
-#     # (This part remains the same as your original code)
+#     # Segmented QNA mesh
 #     mesh_vertices_np = np.asarray(mesh.vertices)
 #     mesh_triangles_np = np.asarray(mesh.triangles)
 #     n_vertices = mesh_vertices_np.shape[0]
+
+#     qa_points = df[["estX", "estY", "estZ"]].values
+#     qa_colors_01 = []
+#     for answer in df["answer"]:
+#         qa_colors_01.append(qna_answer_color_map.get(answer)["rgb"])
+#     qa_colors_01 = np.array(qa_colors_01) / 255.0
+#     qa_pcd = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(qa_points))
+#     qa_pcd.colors = o3d.utility.Vector3dVector(np.array(qa_colors_01))
+
 #     mesh_kdtree = o3d.geometry.KDTreeFlann(mesh)
 #     mesh_scene = o3d.t.geometry.RaycastingScene()
 #     mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
@@ -1713,50 +1703,245 @@ def process_questionnaire_answers(
 #     total_weights = np.zeros(n_vertices, dtype=float)
 #     unique_answers = df["answer"].unique()
 #     all_hit_vertices_by_answer = {}
-#     qa_segmented_meshes = {}
 
 #     for answer in unique_answers:
-#         if answer not in qna_answer_color_map: continue
 #         category_df = df[df["answer"] == answer]
 #         category_points = category_df[["estX", "estY", "estZ"]].values
-#         color_vector = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
+#         color_vector = np.array(qna_answer_color_map.get(answer)["rgb"]) / 255.0
+#         hit_vertices = set()
+
 #         query_points = o3d.core.Tensor(category_points, dtype=o3d.core.Dtype.Float32)
 #         closest_geometry = mesh_scene.compute_closest_points(query_points)
 #         closest_face_indices = closest_geometry["primitive_ids"].numpy()
-#         hit_vertices = set()
-#         for face_idx in closest_face_indices:
-#             if face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
-#                 hit_vertices.update(mesh_triangles_np[face_idx])
-#         all_hit_vertices_by_answer[answer] = list(hit_vertices)
 
-#         for start_node_idx in tqdm(list(hit_vertices), desc=f"Applying Gaussian for {answer}", leave=False):
-#             [k, indices, sq_dist] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+#         for closest_face_idx in tqdm(closest_face_indices, desc=f"{answer} | Mapping Hits", leave=False):
+#             if closest_face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
+#                 for v_idx in mesh_triangles_np[closest_face_idx]:
+#                     hit_vertices.add(v_idx)
+#         all_hit_vertices_by_answer[answer] = hit_vertices
+
+#         for start_node_idx in tqdm(list(hit_vertices), desc="Applying Gaussian Spread", leave=False):
+#             # Find all vertices within the specified radius
+#             [k, indices, euclidean_distance] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+
 #             if k > 0:
-#                 gaussian_weights = np.exp(-np.asarray(sq_dist) / gaussian_denominator)
+#                 # Calculate Gaussian weights based on squared Euclidean distance
+#                 gaussian_weights = np.exp(-np.asarray(euclidean_distance)**2 / gaussian_denominator)
+
+#                 # Apply weighted colors to all neighbors found in the radius
 #                 final_colors[indices] += color_vector * gaussian_weights[:, np.newaxis]
 #                 total_weights[indices] += gaussian_weights
 
 #     valid_weights_mask = total_weights > 1e-9
 #     final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
-#     final_colors[~valid_weights_mask] = base_color
-    
-#     combined_gaussian_mesh = o3d.geometry.TriangleMesh(mesh)
-#     combined_gaussian_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
+#     final_colors[~valid_weights_mask] = base_color # Negation of bool mask
+
+#     combined_mesh = o3d.geometry.TriangleMesh(mesh)
+#     combined_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
 
 #     for answer, hit_vertices in tqdm(all_hit_vertices_by_answer.items(), desc="Making Segmented Maps", leave=False):
-#         color_info = qna_answer_color_map[answer]
+#         color_info = qna_answer_color_map.get(answer)
 #         color_vec = np.array(color_info["rgb"]) / 255.0
-#         segmented_colors = np.full((n_vertices, 3), base_color, dtype=float)
-#         all_affected_indices = set()
-#         for start_node_idx in hit_vertices:
+#         segmented_colors = np.zeros((n_vertices, 3), dtype=float)
+
+#         for start_node_idx in list(hit_vertices):
 #             [k, indices, _] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
-#             if k > 0: all_affected_indices.update(indices)
-#         segmented_colors[list(all_affected_indices)] = color_vec
+#             if k > 0:
+#                 # Assign the solid color to all vertices found within the radius
+#                 segmented_colors[indices] = color_vec
+
 #         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
 #         segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
-#         qa_segmented_meshes[color_info["name"]] = segmented_mesh
+#         qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = segmented_mesh
 
-#     return shaped_qna_mesh, qa_segmented_meshes, combined_gaussian_mesh
+#     return qa_pcd, qa_segmented_meshes, combined_mesh
+
+def _create_base_dot_geometry(size):
+  """Creates the base dot geometry (a sphere) at the origin."""
+  # Create a sphere with the given radius (size)
+  marker = o3d.geometry.TriangleMesh.create_sphere(radius=size)
+  # It's good practice to compute normals for proper lighting and shading
+  marker.compute_vertex_normals()
+  return marker
+
+def _create_base_square_geometry(size):
+    """Creates the base cube geometry at the origin."""
+    marker = o3d.geometry.TriangleMesh.create_box(width=size, height=size, depth=size)
+    marker.compute_vertex_normals()
+    return marker
+
+def _create_base_triangle_geometry(size):
+    """Creates the base tetrahedron geometry at the origin."""
+    marker = o3d.geometry.TriangleMesh.create_tetrahedron(radius=size)
+    marker.compute_vertex_normals()
+    return marker
+
+# def _create_base_star_geometry(size):
+#     """Creates the base star (bipyramid) geometry at the origin."""
+#     pyramid = o3d.geometry.TriangleMesh.create_cone(radius=size, height=size * 0.75, resolution=5, split=1)
+#     inverted_pyramid = deepcopy(pyramid)
+#     flip_rotation = o3d.geometry.get_rotation_matrix_from_xyz((np.pi, 0, 0))
+#     inverted_pyramid.rotate(flip_rotation, center=(0, 0, 0))
+#     marker = pyramid + inverted_pyramid
+#     marker.compute_vertex_normals()
+#     return marker
+
+def _create_diamond_geometry(size):
+    """Creates a diamond (octahedron) geometry at the origin."""
+    diamond = o3d.geometry.TriangleMesh.create_octahedron(radius=size)
+
+    diamond.compute_vertex_normals()
+
+    return diamond
+
+def _create_base_x_geometry(size):
+    """Creates the base 3D 'X' geometry at the origin."""
+    thickness = size / 4.0
+    arm1 = o3d.geometry.TriangleMesh.create_box(width=size, height=thickness, depth=thickness)
+    arm2 = deepcopy(arm1)
+    rotation_z_45_pos = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi / 4))
+    rotation_z_45_neg = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, -np.pi / 4))
+    arm1.rotate(rotation_z_45_pos, center=(0, 0, 0))
+    arm2.rotate(rotation_z_45_neg, center=(0, 0, 0))
+    marker_bottom = arm1 + arm2
+    marker_top = deepcopy(marker_bottom)
+    marker_top.rotate(o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi)), center=(0, 0, 0))
+    marker_top.translate((0, thickness, 0))
+    marker = marker_bottom + marker_top
+    rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, np.pi / 2, 0))
+    marker.rotate(rotation_y_90, center=(0, 0, 0))
+    marker.compute_vertex_normals()
+    return marker
+
+def process_questionnaire_answers(
+    input_file: str,
+    model_file: str,
+    base_color: list,
+    qna_answer_color_map: dict,
+    hololens_2_spatial_error: float,
+    gaussian_denominator: float,
+    # marker_size: float = 0.5,
+):
+    """
+    Processes questionnaire data efficiently by generating shape templates once
+    and reusing them for all points.
+    """
+
+    df = pd.read_csv(input_file, header=0, sep=",")
+    df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
+
+    mesh = o3d.io.read_triangle_mesh(model_file)
+    if not mesh.has_vertices():
+        raise ValueError(f"Mesh file '{model_file}' contains no vertices.")
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    min_bound = mesh.get_min_bound()
+    max_bound = mesh.get_max_bound()
+    max_range = np.max(max_bound - min_bound)
+    marker_size = max_range / 125
+
+    # --- 1. Create Base Geometries (Templates) ---
+    # This is done only ONCE per shape type for maximum efficiency.
+    base_geometry_cache = {
+        'dot': _create_base_dot_geometry(marker_size),
+        'square': _create_base_square_geometry(marker_size),
+        'triangle': _create_base_triangle_geometry(marker_size),
+        'diamond': _create_diamond_geometry(marker_size),
+        'x': _create_base_x_geometry(marker_size),
+    }
+
+    # Map answers to the string key of the geometry cache
+    QNA_SHAPE_KEY_MAP = {
+        "面白い・気になる形だ": 'diamond',
+        "美しい・芸術的だ": 'square',
+        "不思議・意味不明": 'triangle',
+        "不気味・不安・怖い": 'x',
+        "何も感じない": 'dot',
+    }
+
+    # --- 2. Place Shape Instances ---
+    all_marker_meshes = []
+    # Group by answer to handle one color/shape combo at a time
+    for answer, group_df in tqdm(df.groupby("answer"), desc="Placing Shape Instances", leave=False):
+        if answer not in qna_answer_color_map: continue
+
+        # Get the template geometry for this category
+        shape_key = QNA_SHAPE_KEY_MAP.get(answer, 'dot')
+        template_mesh = base_geometry_cache[shape_key]
+
+        # Get the color for this category
+        color_vec = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
+
+        # For each point, copy the template, color it, and move it
+        for point in group_df[["estX", "estY", "estZ"]].values:
+            # Create a fresh copy to avoid moving the original template
+            marker_instance = deepcopy(template_mesh)
+            marker_instance.paint_uniform_color(color_vec)
+            marker_instance.translate(point, relative=False)
+            all_marker_meshes.append(marker_instance)
+
+    # Combine all the placed instances into a single mesh
+    shaped_qna_mesh = o3d.geometry.TriangleMesh()
+    for m in all_marker_meshes:
+        shaped_qna_mesh += m
+
+    # --- 3. Create Colored and Segmented Meshes (Gaussian Spread) ---
+    # (This part remains the same as your original code)
+    mesh_vertices_np = np.asarray(mesh.vertices)
+    mesh_triangles_np = np.asarray(mesh.triangles)
+    n_vertices = mesh_vertices_np.shape[0]
+    mesh_kdtree = o3d.geometry.KDTreeFlann(mesh)
+    mesh_scene = o3d.t.geometry.RaycastingScene()
+    mesh_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+
+    final_colors = np.zeros((n_vertices, 3), dtype=float)
+    total_weights = np.zeros(n_vertices, dtype=float)
+    unique_answers = df["answer"].unique()
+    all_hit_vertices_by_answer = {}
+    qa_segmented_meshes = {}
+
+    for answer in unique_answers:
+        if answer not in qna_answer_color_map: continue
+        category_df = df[df["answer"] == answer]
+        category_points = category_df[["estX", "estY", "estZ"]].values
+        color_vector = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
+        query_points = o3d.core.Tensor(category_points, dtype=o3d.core.Dtype.Float32)
+        closest_geometry = mesh_scene.compute_closest_points(query_points)
+        closest_face_indices = closest_geometry["primitive_ids"].numpy()
+        hit_vertices = set()
+        for face_idx in closest_face_indices:
+            if face_idx != o3d.t.geometry.RaycastingScene.INVALID_ID:
+                hit_vertices.update(mesh_triangles_np[face_idx])
+        all_hit_vertices_by_answer[answer] = list(hit_vertices)
+
+        for start_node_idx in tqdm(list(hit_vertices), desc=f"Applying Gaussian for {answer}", leave=False):
+            [k, indices, sq_dist] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+            if k > 0:
+                gaussian_weights = np.exp(-np.asarray(sq_dist) / gaussian_denominator)
+                final_colors[indices] += color_vector * gaussian_weights[:, np.newaxis]
+                total_weights[indices] += gaussian_weights
+
+    valid_weights_mask = total_weights > 1e-9
+    final_colors[valid_weights_mask] /= total_weights[valid_weights_mask, np.newaxis]
+    final_colors[~valid_weights_mask] = base_color
+
+    combined_gaussian_mesh = o3d.geometry.TriangleMesh(mesh)
+    combined_gaussian_mesh.vertex_colors = o3d.utility.Vector3dVector(final_colors)
+
+    for answer, hit_vertices in tqdm(all_hit_vertices_by_answer.items(), desc="Making Segmented Maps", leave=False):
+        color_info = qna_answer_color_map[answer]
+        color_vec = np.array(color_info["rgb"]) / 255.0
+        segmented_colors = np.full((n_vertices, 3), base_color, dtype=float)
+        all_affected_indices = set()
+        for start_node_idx in hit_vertices:
+            [k, indices, _] = mesh_kdtree.search_radius_vector_3d(mesh_vertices_np[start_node_idx], hololens_2_spatial_error)
+            if k > 0: all_affected_indices.update(indices)
+        segmented_colors[list(all_affected_indices)] = color_vec
+        segmented_mesh = o3d.geometry.TriangleMesh(mesh)
+        segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
+        qa_segmented_meshes[color_info["name"]] = segmented_mesh
+
+    return shaped_qna_mesh, qa_segmented_meshes, combined_gaussian_mesh
 # yapf: enable
 
 
@@ -1873,6 +2058,7 @@ def visualize_geometry(geometry, point_size=1.0):
     vis.run()
     vis.destroy_window()
 
+
 # yapf: disable
 def analyze_and_plot_point_cloud(csv_file_path):
     """
@@ -1937,7 +2123,6 @@ def analyze_and_plot_point_cloud(csv_file_path):
 
     return fig
 # yapf: enable
-
 
 ### PDF Report | AI Generated Visualization Functions ###
 
