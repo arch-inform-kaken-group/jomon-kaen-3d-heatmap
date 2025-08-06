@@ -63,6 +63,9 @@ def get_jomon_kaen_dataset(
     generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
+    generate_fixation: bool = False,
+    voxel_color: str = 'gray', # 'gray' | 'rgb'
+    qna_marker: bool = False,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -98,6 +101,9 @@ def get_jomon_kaen_dataset(
         generate_voice (bool): Generate voice. Default: False
         generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
         generate_sanity_check (bool): Generate sanity check png. Default: False
+        generate_fixation (bool): Generate gaze fixation point cloud and heatmap, with a duration aggregated point cloud, heatmap and legend. Default: False
+        voxel_color (str): 'gray' or 'rgb'. NOT YET IMPLEMENTED. Default: 'gray'
+        qna_marker (bool): Generate QNA point cloud as shaped markers. Default: False
 
     Returns:
         dataset
@@ -132,6 +138,9 @@ def get_jomon_kaen_dataset(
             generate_voice=generate_voice,
             generate_pottery_dogu_voxel=generate_pottery_dogu_voxel,
             generate_sanity_check=generate_sanity_check,
+            generate_fixation=generate_fixation,
+            voxel_color=voxel_color,
+            qna_marker=qna_marker,
         )
 
         random_indicies = np.random.choice(len(data), len(data), replace=False)
