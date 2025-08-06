@@ -1,4 +1,4 @@
-from utils import *
+from dataset.utils import *
 import time
 
 
@@ -26,9 +26,9 @@ def main():
         mode=0,
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
-        # generate_voice=True,
+        generate_voice=True,
         generate_pottery_dogu_voxel=False,
-        # generate_sanity_check=True,
+        generate_sanity_check=True,
         generate_fixation=True,
     )
 
