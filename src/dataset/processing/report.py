@@ -12,10 +12,10 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from PIL import Image as PILImage  #
 
-import numpy as np #
-import pandas as pd #
+import numpy as np  #
+import pandas as pd  #
 
-import matplotlib #
+import matplotlib  #
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt

@@ -2,16 +2,18 @@ from copy import deepcopy
 import sys
 import os
 
-import numpy as np #
-import pandas as pd #
-import open3d as o3d #
-from tqdm import tqdm #
+import numpy as np  #
+import pandas as pd  #
+import open3d as o3d  #
+from tqdm import tqdm  #
 
-import matplotlib #
+import matplotlib  #
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+
+# yapf: disable
 def generate_gaze_visualizations_from_files(
     gaze_csv_path,
     model_path,
@@ -35,8 +37,7 @@ def generate_gaze_visualizations_from_files(
     6. Generates and saves a color bar image corresponding to the heatmap.
 
     Args:
-        gaze_csv_path (str): Path to the input CSV file with gaze data.
-                             Must have columns [x, y, z, timestamp].
+        gaze_csv_path (str): Path to the input CSV file with gaze data. Must have columns [x, y, z, timestamp].
         model_path (str): Path to the input 3D model file (e.g., .obj, .ply).
         output_pointcloud_path (str): Path to save the output colored point cloud (.ply).
         output_heatmap_path (str): Path to save the output heatmap mesh (.ply).
@@ -159,8 +160,9 @@ def generate_gaze_visualizations_from_files(
     except Exception as e:
         print(f"Error saving point cloud: {e}", file=sys.stderr)
 
-
-# yapf: disable
+# Reading (dispersion-based algorithm I-DT): https://www.rpalmafr.com/post/applying-the-dispersion-threshold-identification-i-dt-algorithm-to-identify-eye-fixations
+# TODO: Check the implementation for dispersion_threshold calculation, should be using a visual angle calculation
+# EXPLORE: Apply the fixation calculation to create heatmap that maybe more accurate than a simple aggregation
 def generate_fixation_pointcloud_heatmap(
     input_file: str,
     model_file: str,
@@ -172,18 +174,15 @@ def generate_fixation_pointcloud_heatmap(
     """
     Analyzes gaze data using a dispersion-based algorithm (I-DT) to identify fixations.
     It generates a heatmap on a 3D mesh and a point cloud of fixation centroids.
-    The color mapping for both is fixed to a scale of 0ms (minimum) to 1500ms (maximum).
+    The color mapping for both is fixed to a scale of 0ms (minimum) to 1000ms (maximum).
 
     Args:
-        input_file (str): Path to the CSV file with gaze data.
-                          Expected format: [gaze_x, gaze_y, gaze_z, timestamp, ...].
+        input_file (str): Path to the CSV file with gaze data. Expected format: [gaze_x, gaze_y, gaze_z, timestamp, ...].
         model_file (str): Path to the 3D model file (e.g., .obj, .ply).
         cmap (matplotlib.colors.Colormap): Matplotlib colormap object for the heatmap.
         base_color (list): RGB color (range [0,1]) for the mesh.
-        dispersion_threshold (float): The maximum spatial dispersion (in meters) for a
-                                      group of points to be considered a fixation.
-        min_fixation_duration (float): The minimum duration (in seconds) for a group of gaze
-                                       points to be considered a valid fixation.
+        dispersion_threshold (float): The maximum spatial dispersion (in meters) for a group of points to be considered a fixation.
+        min_fixation_duration (float): The minimum duration (in seconds) for a group of gaze points to be considered a valid fixation.
 
     Returns:
         tuple[o3d.geometry.PointCloud, o3d.geometry.TriangleMesh]:
@@ -253,7 +252,7 @@ def generate_fixation_pointcloud_heatmap(
         if k > 0:
             vertex_durations[idx[0]] += fix['duration']
 
-    # 5. Generate and Apply Heatmap Colors to Mesh with FIXED 0-1500ms Scale
+    # 5. Generate and Apply Heatmap Colors to Mesh with FIXED 0-1000ms Scale
     fixated_indices = np.where(vertex_durations > 0)[0]
     heatmap_mesh = deepcopy(mesh)
 
@@ -261,7 +260,7 @@ def generate_fixation_pointcloud_heatmap(
         # Clip durations at 1.5s for normalization
         clipped_vertex_durations = np.clip(vertex_durations, 0.0, 1.0)
 
-        # Use a fixed normalization scale from 0 to 1.5 seconds (1500ms)
+        # Use a fixed normalization scale from 0 to 1.0 seconds (1000ms)
         norm = plt.Normalize(vmin=0.0, vmax=1.0)
 
         # Normalize only the vertices that were actually hit
@@ -273,11 +272,11 @@ def generate_fixation_pointcloud_heatmap(
     else:
         heatmap_mesh.paint_uniform_color(base_color)
 
-    # 6. Create Fixation Centroid Point Cloud with FIXED 0-1500ms Scale
+    # 6. Create Fixation Centroid Point Cloud with FIXED 0-1000ms Scale
     fixation_centroids_np = np.array([f['centroid'] for f in fixations])
     fixation_durations_np = np.array([f['duration'] for f in fixations])
 
-    # Clip individual fixation durations at 1.5s for normalization
+    # Clip individual fixation durations at 1.0s for normalization
     clipped_point_durations = np.clip(fixation_durations_np, 0.0, 1.0)
 
     # Use the same fixed normalization scale for the points

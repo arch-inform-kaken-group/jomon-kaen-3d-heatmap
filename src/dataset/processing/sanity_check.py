@@ -1,11 +1,12 @@
-import numpy as np #
-import pandas as pd #
-import open3d as o3d #
+import numpy as np  #
+import pandas as pd  #
+import open3d as o3d  #
 
-import matplotlib #
+import matplotlib  #
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 
 # yapf: disable
 def analyze_and_plot_point_cloud(csv_file_path):
@@ -70,7 +71,7 @@ def analyze_and_plot_point_cloud(csv_file_path):
     ax.grid(True)
 
     return fig
-# yapf: enable
+
 
 def generate_original_pointcloud(input_file: str,
                                  jitter_std_dev: float = 0.015):
@@ -82,12 +83,11 @@ def generate_original_pointcloud(input_file: str,
     overlapping.
 
     Args:
-        input_file (str): Path to the CSV file with gaze data.
-                          Expected format: [gaze_x, gaze_y, gaze_z, ...].
+        input_file (str): Path to the CSV file with gaze data. Expected format: [gaze_x, gaze_y, gaze_z, ...].
         jitter_std_dev (float): The standard deviation (in meters) of the
                                 Gaussian noise to add to each point's
                                 coordinates. A larger value creates more spread.
-                                Defaults to 0.0015 (1.5mm).
+                                Default: 0.015.
 
     Returns:
         o3d.geometry.PointCloud: An Open3D PointCloud object with the jittered points.
@@ -118,5 +118,5 @@ def generate_original_pointcloud(input_file: str,
     jittered_points_np = gaze_points_np + noise
 
     # Create and return the Open3D PointCloud from the new jittered data
-    return o3d.geometry.PointCloud(
-        o3d.utility.Vector3dVector(jittered_points_np))
+    return o3d.geometry.PointCloud(o3d.utility.Vector3dVector(jittered_points_np))
+# yapf: enable

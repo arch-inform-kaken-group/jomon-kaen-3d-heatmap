@@ -52,7 +52,7 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 
 ## Processing & Visualization Scripts
 
-[**SCRIPT**](src/dataset/testing_use.py)
+[**SCRIPT**](src/testing_use.py)
 
 1. Create a folder in the `src` directory called `data`
 
@@ -73,9 +73,10 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 Modify the parameters for different results in the `filter_data_on_condition` function
 
 ```python
-root (str): Root directory that contains all groups 
+root (str): Root directory that contains all groups
+pottery_path (str): Path to pottery files
 preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
-mode (int): 'HEATMAP, QNA, VOICE': 0 | 'HEATMAP, QNA': 1 | 'HEATMAP, VOICE': 2 | 'HEATMAP': 3
+mode (int): 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
 hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
 target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
 qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -94,5 +95,10 @@ tracking_sheet_path (str): Path to the tracking sheet. Default: ""
 generate_report (bool): Generate a data report. Default: True
 generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
 generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
-generate_voice (bool): Generate voice. Default: True
+generate_voice (bool): Generate voice. Default: False
+generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
+generate_sanity_check (bool): Generate sanity check png. Default: False
+generate_fixation (bool): Generate gaze fixation point cloud and heatmap, with a duration aggregated point cloud, heatmap and legend. Default: False
+voxel_color (str): 'gray' or 'rgb'. NOT YET IMPLEMENTED. Default: 'gray'
+qna_marker (bool): Generate QNA point cloud as shaped markers. Default: False
 ```
