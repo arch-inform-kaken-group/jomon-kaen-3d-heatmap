@@ -150,20 +150,55 @@ class PointNetLightningModule(pl.LightningModule):
         self.log('acc_thresh', self.hparams.accuracy_threshold, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         # The LR is logged automatically by the LearningRateMonitor callback
 
+    # def _shared_step(self, batch, batch_idx):
+    #     inputs, targets = batch
+    #     inputs = inputs.permute(0, 2, 1) # B, C, N
+    #     outputs = self(inputs)           # B, 1, N
+    #     outputs = outputs.permute(0, 2, 1) # B, N, 1
+        
+    #     loss = self.criterion(outputs, targets)
+        
+    #     with torch.no_grad():
+    #         # Accuracy is calculated based on the *current* threshold, which decays over epochs
+    #         correct = torch.sum(torch.abs(outputs - targets) < self.hparams.accuracy_threshold)
+    #         accuracy = correct / targets.numel()
+            
+    #     return loss, accuracy
+
     def _shared_step(self, batch, batch_idx):
+        """
+        A shared step for training, validation, and testing.
+        Includes L1 sparsity regularization.
+        """
+        # 1. Unpack batch and perform the forward pass
         inputs, targets = batch
-        inputs = inputs.permute(0, 2, 1) # B, C, N
-        outputs = self(inputs)           # B, 1, N
-        outputs = outputs.permute(0, 2, 1) # B, N, 1
+        inputs = inputs.permute(0, 2, 1)      # B, C, N
+        outputs = self(inputs)                # B, 1, N
+        outputs = outputs.permute(0, 2, 1)    # B, N, 1
+
+        # 2. Calculate the primary reconstruction loss (MSE)
+        mse_loss = self.criterion(outputs, targets)
+
+        # 3. Calculate the L1 sparsity penalty on the outputs
+        # We use .mean() to make it independent of batch size.
+        l1_penalty = torch.mean(torch.abs(outputs))
+
+        # 4. Calculate the total loss by adding the weighted penalty
+        # self.hparams.sparsity_weight is the lambda (λ) hyperparameter
+        total_loss = mse_loss + self.hparams.sparsity_weight * l1_penalty
         
-        loss = self.criterion(outputs, targets)
-        
+        # 5. Calculate accuracy for monitoring (within no_grad context)
         with torch.no_grad():
-            # Accuracy is calculated based on the *current* threshold, which decays over epochs
+            # Accuracy is calculated based on the *current* threshold
             correct = torch.sum(torch.abs(outputs - targets) < self.hparams.accuracy_threshold)
             accuracy = correct / targets.numel()
+
+            # Best Practice: Log individual loss components for easier debugging
+            # self.log('mse_loss', mse_loss)
+            # self.log('l1_penalty', l1_penalty)
             
-        return loss, accuracy
+        # 6. Return the combined loss and the accuracy
+        return total_loss, accuracy
 
     def training_step(self, batch, batch_idx):
         loss, accuracy = self._shared_step(batch, batch_idx)
