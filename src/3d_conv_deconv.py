@@ -120,23 +120,18 @@ class Deconver(nn.Module):
 def main():
     st = time.time_ns()
 
-    # --- 1. Load Datasets ---
-    # Note: For a real run, you might remove pottery_ids to use all data
     train_dataset, test_dataset = get_jomon_kaen_dataset(
         root="./src/data",
         pottery_path="./src/pottery",
-        split=0.25,
+        split=0.1,
         preprocess=True,
         use_cache=True,
-        pottery_ids=["IN0017"],
         mode=3,
         generate_qna=False,
         generate_voice=False,
         generate_pottery_dogu_voxel=False,
         generate_sanity_check=False)
 
-    # --- 2. Create DataLoaders ---
-    # Warning: 3D data is large. Start with batch_size=1 and increase if memory allows.
     train_dataloader = DataLoader(dataset=train_dataset,
                                   batch_size=1,
                                   shuffle=True,
