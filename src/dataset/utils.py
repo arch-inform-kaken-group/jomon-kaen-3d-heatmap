@@ -414,6 +414,8 @@ def filter_data_on_condition(
     generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
+    # TEMPORARY VARIABLE FOR BALANCED DATASET
+    limit: int = 9,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -508,6 +510,7 @@ def filter_data_on_condition(
             errors = increment_error('Missing pottery / dogu regardless of file extension', str(pottery_path / Path(f"{p}.*")), errors)
 
     # Filter based on group, session, model
+    limit_track = {key: 0 for key in pottery_id_all}
     print(f"\nCHECKING RAW DATA PATHS")
     unique_group_keys = set([])
     unique_session_keys = set([])
@@ -601,7 +604,10 @@ def filter_data_on_condition(
                     save_path = processed_pottery_dir / f"{str(pottery_dogu_path).split("\\")[-1].split(".")[0]}{MESH_PC_VOXEL_EXTENSION}"
                     data_paths['processed_pottery_path'] = str(save_path)
                     unique_pottery_dogu_voxel.add(str(pottery_dogu_path))
-                    data.append(data_paths)
+                    
+                    if (limit_track[p] < limit):
+                        limit_track[p] += 1
+                        data.append(data_paths)
 
     n_valid_data = len(data)
 
@@ -1377,7 +1383,7 @@ def voxelize_pottery_dogu(input_file, target_voxel_resolution):
     # Calculate areas for all triangles to determine sample density
     v0, v1, v2 = tri_vertices[:, 0], tri_vertices[:, 1], tri_vertices[:, 2]
     triangle_areas = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
-    num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
+    num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 20
     total_samples = np.sum(num_samples_per_triangle)
 
     # Vectorized Barycentric Sampling and Interpolation

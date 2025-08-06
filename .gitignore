@@ -1,4 +1,7 @@
 archive
+checkpoints
+lightning_logs
+outputs
 
 .env
 
