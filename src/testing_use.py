@@ -13,63 +13,51 @@ def main():
         preprocess=True,
         use_cache=False,
         # cmap=plt.get_cmap('gray'),
+        # session_ids=[
+        #     "2025_07_02_18_03_06", "2025_07_02_16_54_58",
+        #     "2025_07_09_10_26_16", "2025_07_17_09_12_35", "2025_06_30_18_45_20"
+        # ],
+        # pottery_ids=["IN0295", "IN0017", "TK0020", "UD0023", "NM0099"],
+        limit=1000,
         session_ids=[
-            "2025_07_02_18_03_06", "2025_07_02_16_54_58",
-            "2025_07_09_10_26_16", "2025_07_17_09_12_35", "2025_06_30_18_45_20"
+            # "2025_07_09_11_12_59", "2025_07_09_11_23_30",
+            # "2025_07_02_16_54_58", "2025_07_02_17_06_29"
         ],
-        pottery_ids=["IN0295", "IN0017", "TK0020", "UD0023", "NM0099"],
-        # session_ids=["2025_07_09_11_12_59", "2025_07_09_11_23_30", "2025_07_02_16_54_58", "2025_07_02_17_06_29"],
-        # pottery_ids=["TJ0005", "TK0020"],
-        min_emotion_count=2,
-        min_qa_size=20,
-        # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=0,
-        # generate_pc_hm_voxel=False,
-        # generate_qna=False,
-        generate_voice=True,
-        generate_pottery_dogu_voxel=False,
-        generate_sanity_check=True,
-        generate_fixation=True,
-    )
-
-    # data, errors = filter_data_on_condition(
-    #     root="./src/data",
-    #     pottery_path="./src/pottery",
-    #     hololens_2_spatial_error=1.5,
-    #     preprocess=True,
-    #     use_cache=False,
-    #     session_ids=["2025_06_25_17_17_56"],
-    #     # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-    #     mode=0,
-    #     # generate_pc_hm_voxel=False,
-    #     # generate_qna=False,
-    #     # generate_voice=True,
-    #     # generate_pottery_dogu_voxel=False,
-    #     # generate_sanity_check=True,
-    # )
-
-    data, errors = filter_data_on_condition(
-        root=r"D:\storage\jomon_kaen\data",
-        pottery_path=r"D:\storage\jomon_kaen\pottery",
-        hololens_2_spatial_error=1.5,
-        preprocess=True,
-        use_cache=True,
+        pottery_ids=["TJ0005", "TK0020"],
+        # min_emotion_count=2,
+        # min_qa_size=20,
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=3,
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
         # generate_voice=True,
-        # generate_pottery_dogu_voxel=False,
+        generate_pottery_dogu_voxel=False,
+        # generate_sanity_check=True,
+        # generate_fixation=True,
     )
 
-    pottery_id_all = [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
-    avg_track = {key: {'count': 0, 'polysum': 0} for key in pottery_id_all}
-    for data_path in data:
-        voxel = o3d.io.read_point_cloud(data_path[voxel_filename])
-        avg_track[data_path['ID']]['count'] += 1
-        avg_track[data_path['ID']]['polysum'] += len(voxel.points)
-    for key, cp in avg_track.items():
-        print(f"{key}: {cp['polysum']/cp['count']}")
+    # data, errors = filter_data_on_condition(
+    #     root=r"D:\storage\jomon_kaen\data",
+    #     pottery_path=r"D:\storage\jomon_kaen\pottery",
+    #     hololens_2_spatial_error=1.5,
+    #     preprocess=True,
+    #     use_cache=True,
+    #     # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
+    #     mode=3,
+    #     # generate_pc_hm_voxel=False,
+    #     # generate_qna=False,
+    #     # generate_voice=True,
+    #     # generate_pottery_dogu_voxel=False,
+    # )
+
+    # pottery_id_all = [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
+    # avg_track = {key: {'count': 0, 'polysum': 0} for key in pottery_id_all}
+    # for data_path in data:
+    #     voxel = o3d.io.read_point_cloud(data_path[voxel_filename])
+    #     avg_track[data_path['ID']]['count'] += 1
+    #     avg_track[data_path['ID']]['polysum'] += len(voxel.points)
+    # for key, cp in avg_track.items():
+    #     print(f"{key}: {cp['polysum']/cp['count']}")
 
     # print(errors, len(data))
 

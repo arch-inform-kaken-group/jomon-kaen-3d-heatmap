@@ -242,7 +242,7 @@ class PointNetLightningModule(pl.LightningModule):
 
 # 4. MAIN EXECUTION BLOCK (MODIFIED)
 if __name__ == '__main__':
-    # --- Configuration ---
+    # Configuration
     NUM_POINTS = 4096 * 8
     BATCH_SIZE = 8
     MAX_EPOCHS = 200
@@ -251,7 +251,7 @@ if __name__ == '__main__':
     NUM_WORKERS = int(os.cpu_count() / 2) if os.cpu_count() else 0
     OUTPUT_DIR = "outputs"
     
-    # --- Hyperparameters for decay ---
+    # Hyperparameters for decay
     LEARNING_RATE_INITIAL = 1e-3
     LEARNING_RATE_FINAL = 1e-5    # The LR will decay to this value
     ACC_THRESH_INITIAL = 0.01
@@ -260,10 +260,10 @@ if __name__ == '__main__':
     torch.set_float32_matmul_precision('high')
     print(f"Found {NUM_GPUS} GPUs and {os.cpu_count()} CPUs. Using {NUM_WORKERS} workers.")
 
-    # --- Initialize Data and Model Modules ---
+    # Initialize Data and Model Modules
     datamodule = JomonKaenDataModule(
-        data_root=r"D:\storage\jomon_kaen\data", # Adjusted to your original path
-        pottery_path=r"D:\storage\jomon_kaen\pottery", # Adjusted to your original path
+        data_root=r"D:\storage\jomon_kaen\data",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         num_points=NUM_POINTS
@@ -277,7 +277,10 @@ if __name__ == '__main__':
         acc_thresh_final=ACC_THRESH_FINAL
     )
 
-    # --- Configure Callbacks ---
+    import torchinfo
+    torchinfo.summary(model)
+
+    # Configure Callbacks
     # 1. Saves the single best model based on validation loss
     best_checkpoint_callback = ModelCheckpoint(
         monitor='val_loss', 
@@ -304,7 +307,7 @@ if __name__ == '__main__':
     # 4. Logs the learning rate to the logger (e.g., TensorBoard)
     lr_monitor_callback = LearningRateMonitor(logging_interval='epoch')
 
-    # --- Initialize Trainer ---
+    # Initialize Trainer
     trainer = pl.Trainer(
         accelerator='gpu' if NUM_GPUS > 0 else 'cpu',
         devices=NUM_GPUS if NUM_GPUS > 0 else 1,
@@ -314,12 +317,12 @@ if __name__ == '__main__':
         log_every_n_steps=10
     )
 
-    # --- Start Training ---
+    # Start Training
     print("\n--- Starting Training ---")
     trainer.fit(model, datamodule=datamodule)
     print("--- Training Finished ---")
 
-    # --- INFERENCE SECTION ---
+    # INFERENCE SECTION
     print("\n--- Starting Inference ---")
     
     # Use the path from the callback that saves the single best model
@@ -359,7 +362,7 @@ if __name__ == '__main__':
                 for j in range(predicted_intensities.shape[0]):
                     xyz = inputs[j, :, :3].cpu().numpy()
                     
-                    # --- Process and Save Prediction ---
+                    # Process and Save Prediction
                     pred_intensities = predicted_intensities[j]
                     # Add a small epsilon to prevent division by zero if all intensities are the same
                     norm_pred = (pred_intensities - np.min(pred_intensities)) / (np.max(pred_intensities) - np.min(pred_intensities) + 1e-8)
@@ -372,7 +375,7 @@ if __name__ == '__main__':
                     pred_filename = os.path.join(output_dir_pred, f"prediction_batch{i}_item{j}.ply")
                     o3d.io.write_point_cloud(pred_filename, pcd_pred)
                     
-                    # --- Process and Save Ground Truth ---
+                    # Process and Save Ground Truth
                     gt_intensities = targets[j].cpu().numpy()
                     norm_gt = (gt_intensities - np.min(gt_intensities)) / (np.max(gt_intensities) - np.min(gt_intensities) + 1e-8)
                     colors_gt = cmap(norm_gt.squeeze())[:, :3]

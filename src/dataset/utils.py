@@ -313,7 +313,6 @@ def filter_data_on_condition(
     generate_voice: bool = False,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
-    # TEMPORARY VARIABLE FOR BALANCED DATASET
     limit: int = 9,
     generate_fixation: bool = False,
     voxel_color: str = 'gray', # 'gray' | 'rgb'
