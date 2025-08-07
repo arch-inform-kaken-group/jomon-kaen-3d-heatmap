@@ -398,8 +398,10 @@ def main():
     st = time.time_ns()
 
     train_dataset, test_dataset = get_jomon_kaen_dataset(
-        root="./src/data",
-        pottery_path="./src/pottery",
+        # root="./src/data",
+        # pottery_path="./src/pottery",
+        root=r"D:\storage\jomon_kaen\data",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
         split=0.1,
         preprocess=True,
         use_cache=True,
