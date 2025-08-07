@@ -61,6 +61,11 @@ class PointNetRegressor(nn.Module):
         self.reg_conv2 = nn.Conv1d(512, 256, 1); self.reg_bn2 = nn.BatchNorm1d(256)
         self.reg_conv3 = nn.Conv1d(256, 128, 1); self.reg_bn3 = nn.BatchNorm1d(128)
         self.reg_conv4 = nn.Conv1d(128, 1, 1)
+        # self.conv5 = nn.Conv1d(128, 512, 1); self.bn5 = nn.BatchNorm1d(512)
+        # self.reg_conv1 = nn.Conv1d(576, 256, 1); self.reg_bn1 = nn.BatchNorm1d(256)
+        # self.reg_conv2 = nn.Conv1d(256, 128, 1); self.reg_bn2 = nn.BatchNorm1d(128)
+        # self.reg_conv3 = nn.Conv1d(128, 64, 1); self.reg_bn3 = nn.BatchNorm1d(64)
+        # self.reg_conv4 = nn.Conv1d(64, 1, 1)
 
     def forward(self, x):
         xyz = x[:, :3, :]
@@ -122,7 +127,7 @@ class JomonKaenDataModule(pl.LightningDataModule):
 
 # 3. PYTORCH LIGHTNING MODULE (MODIFIED)
 class PointNetLightningModule(pl.LightningModule):
-    def __init__(self, num_points=4096, learning_rate=1e-3, lr_final=1e-5, accuracy_threshold=0.05, acc_thresh_final=0.01):
+    def __init__(self, num_points=4096, learning_rate=1e-3, lr_final=1e-5, accuracy_threshold=0.05, acc_thresh_final=0.01, sparsity_weight=0.1):
         super().__init__()
         self.save_hyperparameters()
         self.model = PointNetRegressor(num_points=self.hparams.num_points)
@@ -141,10 +146,10 @@ class PointNetLightningModule(pl.LightningModule):
         """
         # Calculate the new accuracy threshold based on a linear decay.
         progress = self.current_epoch / self.trainer.max_epochs
-        new_thresh = self.initial_accuracy_threshold - (self.initial_accuracy_threshold - self.hparams.acc_thresh_final) * progress
+        # new_thresh = self.initial_accuracy_threshold - (self.initial_accuracy_threshold - self.hparams.acc_thresh_final) * progress
         
         # Update the hyperparameter, ensuring it doesn't fall below the final value as a safeguard.
-        self.hparams.accuracy_threshold = max(self.hparams.acc_thresh_final, new_thresh)
+        # self.hparams.accuracy_threshold = max(self.hparams.acc_thresh_final, new_thresh)
         
         # Log the current values to see them in the progress bar and logs
         self.log('acc_thresh', self.hparams.accuracy_threshold, on_step=False, on_epoch=True, prog_bar=True, logger=True)
@@ -194,8 +199,8 @@ class PointNetLightningModule(pl.LightningModule):
             accuracy = correct / targets.numel()
 
             # Best Practice: Log individual loss components for easier debugging
-            # self.log('mse_loss', mse_loss)
-            # self.log('l1_penalty', l1_penalty)
+            self.log('mse_loss', mse_loss)
+            self.log('weighted_l1_penalty', self.hparams.sparsity_weight * l1_penalty)
             
         # 6. Return the combined loss and the accuracy
         return total_loss, accuracy
@@ -249,7 +254,7 @@ if __name__ == '__main__':
     # --- Hyperparameters for decay ---
     LEARNING_RATE_INITIAL = 1e-3
     LEARNING_RATE_FINAL = 1e-5    # The LR will decay to this value
-    ACC_THRESH_INITIAL = 0.2
+    ACC_THRESH_INITIAL = 0.01
     ACC_THRESH_FINAL = 0.01       # The accuracy threshold will decay to this value
 
     torch.set_float32_matmul_precision('high')

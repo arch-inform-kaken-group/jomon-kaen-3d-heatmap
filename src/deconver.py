@@ -50,7 +50,7 @@ class NDC_Layer(nn.Module):
         nn.init.kaiming_uniform_(self.V,
                                  a=np.sqrt(5))  # Kaiming init as per paper
 
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
         # x shape: (N, C, D, H, W)
@@ -107,7 +107,7 @@ class DeconvMixer(nn.Module):
         source_channels = int(channels * source_channel_ratio)
 
         self.pw_conv1 = nn.Conv3d(channels, channels, kernel_size=1)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
         self.ndc_layer = NDC_Layer(channels, source_channel_ratio, kernel_size)
         self.pw_conv2 = nn.Conv3d(source_channels, channels, kernel_size=1)
 
@@ -180,7 +180,7 @@ class Deconver(nn.Module):
         for i in range(depth):
             self.encoder_blocks.append(
                 DeconverBlock(ch, kernel_size=kernel_size))
-            next_ch = min(ch * 2, 512)
+            next_ch = min(ch * 2, 64)
             self.downsample_layers.append(
                 nn.Conv3d(ch, next_ch, kernel_size=2, stride=2))
             ch = next_ch
@@ -320,7 +320,7 @@ class CorrectDeconver(nn.Module):
         for _ in range(depth):
             self.encoder_blocks.append(
                 DeconverBlock(ch, kernel_size=kernel_size))
-            next_ch = min(ch * 2, 512)
+            next_ch = min(ch * 2, 64)
             self.downsample_layers.append(
                 nn.Conv3d(ch, next_ch, kernel_size=2, stride=2))
             ch = next_ch
@@ -408,8 +408,9 @@ def main():
         mode=3,
         generate_qna=False,
         generate_voice=False,
-        generate_pottery_dogu_voxel=False,
+        generate_pottery_dogu_voxel=True,
         generate_sanity_check=False,
+        target_voxel_resolution=64,
         num_points=4096 * 4,
     )
 
@@ -431,8 +432,8 @@ def main():
 
     # Instantiate the new CorrectDeconver model
     # base_c=32 and depth=4 are common settings.
-    model = CorrectDeconver(in_channels=3, out_channels=1, base_c=32,
-                            depth=4).to(device)
+    model = CorrectDeconver(in_channels=3, out_channels=1, base_c=4,
+                            depth=2).to(device)
 
     # Use a more suitable loss for segmentation
     criterion = CombinedLoss()
