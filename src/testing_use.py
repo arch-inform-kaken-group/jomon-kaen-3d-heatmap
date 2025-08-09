@@ -19,15 +19,15 @@ def main():
         # ],
         # pottery_ids=["IN0295", "IN0017", "TK0020", "UD0023", "NM0099"],
         limit=1000,
-        session_ids=[
-            # "2025_07_09_11_12_59", "2025_07_09_11_23_30",
-            # "2025_07_02_16_54_58", "2025_07_02_17_06_29"
-        ],
-        pottery_ids=["TJ0005", "TK0020"],
         # min_emotion_count=2,
         # min_qa_size=20,
+        session_ids=["2025_07_10_11_03_23", "2025_07_10_08_46_51", "2025_06_25_19_31_00", "2025_07_10_11_11_25"],
+        min_emotion_count=1,
+        max_emotion_count=1,
+        qna_marker=True,
+        pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=3,
+        mode=1,
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
         # generate_voice=True,

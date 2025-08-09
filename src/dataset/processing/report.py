@@ -22,6 +22,35 @@ import matplotlib.pyplot as plt
 
 ### PDF Report | AI Generated Visualization Functions ###
 
+# ====================================================================
+# ADDITIONS FOR JAPANESE CHARACTER SUPPORT START HERE
+# ====================================================================
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# 1. Register a Japanese font.
+#    Replace 'ipaexg.ttf' with the path to your chosen font file.
+#    You need to have this font file accessible to your script.
+#    This font will be used for all text to ensure it can render Japanese.
+try:
+    font_path = Path(__file__).parent / 'ipaexg.ttf' # Assumes font is in the same directory
+    pdfmetrics.registerFont(TTFont('JapaneseFont', font_path))
+    # We can also register a bold version if a separate file exists.
+    # For simplicity, we'll just use the same font file for both regular and bold.
+    pdfmetrics.registerFont(TTFont('JapaneseFont-Bold', font_path))
+    JAPANESE_FONT = 'JapaneseFont'
+    JAPANESE_FONT_BOLD = 'JapaneseFont-Bold'
+    print(f"Successfully registered Japanese font: {JAPANESE_FONT}")
+except Exception as e:
+    print(f"Failed to register Japanese font. Japanese characters may not render correctly: {e}", file=sys.stderr)
+    # Fallback to a default font that may or may not support Japanese.
+    # 'Helvetica' is the default and will not, but it's a good fallback for Latin characters.
+    JAPANESE_FONT = 'Helvetica'
+    JAPANESE_FONT_BOLD = 'Helvetica-Bold'
+# ====================================================================
+# ADDITIONS FOR JAPANESE CHARACTER SUPPORT END HERE
+# ====================================================================
+
 
 def _create_cmap_image(cmap, width=1.5 * inch, height=0.2 * inch):
     """Generates an image of a matplotlib colormap in an in-memory buffer."""
@@ -55,6 +84,13 @@ def _generate_analysis_plots(
 
     plots = []
 
+    # ====================================================================
+    # ADDITION: Configure Matplotlib to use the Japanese font for plots
+    # This is crucial for plot titles, labels, and ticks to display
+    # Japanese characters if they exist in your data.
+    # ====================================================================
+    plt.rcParams['font.family'] = JAPANESE_FONT
+
     # --- Plot 1: Count of Pottery ---
     try:
         plt.style.use('seaborn-v0_8-whitegrid')
@@ -64,7 +100,7 @@ def _generate_analysis_plots(
         ax.set_title('Count of Data Instances per Pottery ID', fontsize=14)
         ax.set_ylabel('Count', fontsize=10)
         ax.set_xlabel('Pottery ID', fontsize=10)
-        plt.xticks(rotation=90, fontsize=8)
+        plt.xticks(rotation=-90, fontsize=8)
         plt.tight_layout()
 
         buf = io.BytesIO()
@@ -154,6 +190,9 @@ def generate_filtered_dataset_report(
     min_qa_size: float = 0.0,
     min_voice_quality: float = 0.0,
     min_emotion_count: int = 1,
+    max_emotion_count: int = 5,
+    emotion_type: list = [],
+    limit: int = 9,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
     n_filtered_from_tracking_sheet: int = 0,
@@ -177,12 +216,16 @@ def generate_filtered_dataset_report(
                                  parent=styles['h1'],
                                  fontSize=18,
                                  alignment=TA_CENTER,
-                                 spaceAfter=18)
+                                 spaceAfter=18,
+                                 fontName=JAPANESE_FONT_BOLD) # CHANGE HERE
     heading_style = ParagraphStyle('Heading2',
                                    parent=styles['h2'],
                                    fontSize=14,
-                                   spaceAfter=12)
-    body_style = styles['Normal']
+                                   spaceAfter=12,
+                                   fontName=JAPANESE_FONT) # CHANGE HERE
+    body_style = ParagraphStyle('Body',
+                                parent=styles['Normal'],
+                                fontName=JAPANESE_FONT) # CHANGE HERE
 
     # --- 1. Title ---
     story.append(Paragraph("Data Filtering and Processing Report",
@@ -208,11 +251,11 @@ def generate_filtered_dataset_report(
         TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTNAME', (0, 0), (-1, -1), JAPANESE_FONT),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 3), (0, 3), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 3), (0, 3), JAPANESE_FONT_BOLD),
+            ('FONTNAME', (1, 3), (1, 3), JAPANESE_FONT_BOLD),
         ]))
     story.append(summary_table)
     story.append(Spacer(1, 0.25 * inch))
@@ -221,6 +264,7 @@ def generate_filtered_dataset_report(
     story.append(Paragraph("2. Filtering Parameters", heading_style))
 
     def format_list(items):
+        # This helper function will now be rendered with the Japanese-compatible font
         return ", ".join(map(str, items)) if items else "Not specified"
 
     # Create a small colored box for the base_color
@@ -234,7 +278,7 @@ def generate_filtered_dataset_report(
              strokeColor=None))
     base_color_display = Table(
         [[Paragraph(str(base_color), body_style), base_color_box]],
-        colWidths=[1.0 * inch, None])
+        colWidths=[1.7 * inch, None])
     base_color_display.setStyle(
         TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
 
@@ -244,7 +288,7 @@ def generate_filtered_dataset_report(
         Paragraph(f"'{cmap.name}'", body_style),
         Image(cmap_image_buffer, width=1.5 * inch, height=0.2 * inch)
     ]],
-                         colWidths=[0.7 * inch, 1.6 * inch])
+                          colWidths=[0.7 * inch, 1.6 * inch])
     cmap_display.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
 
     params_data = [
@@ -266,6 +310,10 @@ def generate_filtered_dataset_report(
          str(min_pointcloud_size)],
         ['Min Q&A Size (KB):', str(min_qa_size)],
         ['Min Emotion Count:', str(min_emotion_count)],
+        ['Max Emotion Count:', str(max_emotion_count)],
+        ['Emotion Type:',
+         Paragraph(format_list(emotion_type), body_style)],
+        ['Max Pottery Count:', str(limit)],
         ['Groups:', Paragraph(format_list(groups), body_style)],
         ['Session IDs:',
          Paragraph(format_list(session_ids), body_style)],
@@ -278,7 +326,7 @@ def generate_filtered_dataset_report(
         TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTNAME', (0, 0), (-1, -1), JAPANESE_FONT),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
@@ -300,7 +348,8 @@ def generate_filtered_dataset_report(
         plot_title_style = ParagraphStyle('PlotTitle',
                                           parent=styles['h3'],
                                           spaceBefore=12,
-                                          spaceAfter=4)
+                                          spaceAfter=4,
+                                          fontName=JAPANESE_FONT) # CHANGE HERE
         for plot_info in analysis_plots:
             story.append(Paragraph(plot_info['title'], plot_title_style))
 
@@ -311,7 +360,6 @@ def generate_filtered_dataset_report(
             pil_image = PILImage.open(original_buffer)
 
             # 3. Rotate it 90 degrees. `expand=True` ensures the canvas resizes.
-            # Use COUNTERCLOCKWISE to make the y-axis appear on the left.
             rotated_image = pil_image.rotate(90,
                                              expand=True,
                                              resample=PILImage.BICUBIC)
@@ -321,11 +369,7 @@ def generate_filtered_dataset_report(
             rotated_image.save(rotated_buffer, format='PNG')
             rotated_buffer.seek(0)
 
-            # 5. Add the rotated image to the PDF, adjusting the width to fit.
-            # Constrain the image to a bounding box of 5x8 inches.
-            # Reportlab will scale the image to fit inside this box while
-            # preserving its aspect ratio. Since the image is tall and narrow,
-            # the height=8*inch will be the limiting factor, guaranteeing it fits.
+            # 5. Add the rotated image to the PDF
             img = Image(rotated_buffer, width=5 * inch, height=8 * inch)
             img.hAlign = 'CENTER'
             story.append(img)
@@ -344,9 +388,9 @@ def generate_filtered_dataset_report(
         error_title_style = ParagraphStyle(
             'ErrorTitle',
             parent=body_style,
-            fontName='Helvetica-Bold',
+            fontName=JAPANESE_FONT_BOLD, # CHANGE HERE
             fontSize=11,
-            spaceAfter=6  # Space between the title and the table
+            spaceAfter=6
         )
 
         for error_type, details in errors.items():
@@ -359,18 +403,15 @@ def generate_filtered_dataset_report(
             story.append(error_title)
 
             # 2. Create a simple, single-column table for the paths
-            # Each path is wrapped in a Paragraph to allow for automatic line wrapping
             path_data = [[Paragraph(p, body_style)] for p in paths]
 
-            # Use the full available width of the document frame
-            # (5.5 inches is a safe width for a standard Letter/A4 page with margins)
             path_table = Table(path_data, colWidths=[5.5 * inch])
 
             path_table.setStyle(
                 TableStyle([
                     ('GRID', (0, 0), (-1, -1), 1, colors.black),
                     ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    # Add some padding inside the cells
+                    ('FONTNAME', (0, 0), (-1, -1), JAPANESE_FONT), # CHANGE HERE
                     ('LEFTPADDING', (0, 0), (-1, -1), 6),
                     ('RIGHTPADDING', (0, 0), (-1, -1), 6),
                     ('TOPPADDING', (0, 0), (-1, -1), 4),

@@ -175,7 +175,8 @@ def process_questionnaire_answers_markers(
     min_bound = mesh.get_min_bound()
     max_bound = mesh.get_max_bound()
     max_range = np.max(max_bound - min_bound)
-    marker_size = max_range / 125
+    # marker_size = max_range / 125
+    marker_size = max_range / 50
 
     # 1. Create Base Geometries (Templates)
     # This is done only ONCE per shape type for maximum efficiency.
@@ -215,12 +216,13 @@ def process_questionnaire_answers_markers(
         color_vec = np.array(qna_answer_color_map[answer]["rgb"]) / 255.0
 
         # For each point, copy the template, color it, and move it
-        for point in group_df[["estX", "estY", "estZ"]].values:
-            # Create a fresh copy to avoid moving the original template
-            marker_instance = deepcopy(template_mesh)
-            marker_instance.paint_uniform_color(color_vec)
-            marker_instance.translate(point, relative=False)
-            all_marker_meshes.append(marker_instance)
+        for i, point in enumerate(group_df[["estX", "estY", "estZ"]].values):
+            if (i%4==0):
+                # Create a fresh copy to avoid moving the original template
+                marker_instance = deepcopy(template_mesh)
+                marker_instance.paint_uniform_color(color_vec)
+                marker_instance.translate(point, relative=False)
+                all_marker_meshes.append(marker_instance)
 
     # Combine all the placed instances into a single mesh
     shaped_qna_mesh = o3d.geometry.TriangleMesh()

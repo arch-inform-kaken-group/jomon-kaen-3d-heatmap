@@ -48,10 +48,10 @@ DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
 # Colors
 # Gaze duration gradient from bright Cyan to dark Red
-# cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
-# DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
+cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
+DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
 
-DEFAULT_CMAP = plt.get_cmap('jet')
+# DEFAULT_CMAP = plt.get_cmap('jet')
 
 DEFAULT_BASE_COLOR = [0.0, 0.0, 0.0]
 
@@ -159,12 +159,12 @@ DEFAULT_QNA_ANSWER_COLOR_MAP = {
         "name": "cyan"
     },
     "美しい・芸術的だ": {
-        "rgb": [0, 128, 0],
+        "rgb": [0, 255, 0],
         "name": "green"
     },
     "不思議・意味不明": {
-        "rgb": [255, 200, 25],
-        "name": "orange"
+        "rgb": [255, 255, 0],
+        "name": "yellow"
     },
     "不気味・不安・怖い": {
         "rgb": [255, 0, 0],
@@ -179,12 +179,12 @@ DEFAULT_QNA_ANSWER_COLOR_MAP = {
           "name": "cyan"
      },
      "Beautiful and artistic": {
-          "rgb": [0, 128, 0],
+          "rgb": [0, 255, 0],
           "name": "green"
      },
      "Strange and incomprehensible": {
-          "rgb": [255, 200, 25],
-          "name": "orange"
+          "rgb": [255, 255, 0],
+          "name": "yellow"
      },
      "Creepy / unsettling / scary": {
           "rgb": [255, 0, 0],
@@ -304,6 +304,8 @@ def filter_data_on_condition(
     min_qa_size: float = 0.0,
     min_voice_quality: float = 0.1,
     min_emotion_count: int = 0,
+    max_emotion_count: int = 5,
+    emotion_type: list = [],
     use_cache: bool = True,
     from_tracking_sheet: bool = False,
     tracking_sheet_path: str = "",
@@ -558,7 +560,7 @@ def filter_data_on_condition(
     # Filter from arguments
     n_filtered_from_arguments = 0
     if (mode==0 or mode==1):
-        data = filter_qna_by_emotion_count(data, min_emotion_count=min_emotion_count)
+        data = filter_qna_by_emotion_count_and_type(data, min_emotion_count=min_emotion_count, max_emotion_count=max_emotion_count, emotion_type=emotion_type)
     if len(groups) > 0: unique_group_keys = list(unique_group_keys & set(groups))
     unique_group_keys = list(unique_group_keys)
     if len(session_ids) > 0: unique_session_keys = list(unique_session_keys & set(session_ids))
@@ -736,6 +738,9 @@ def filter_data_on_condition(
             min_qa_size=min_qa_size,
             min_voice_quality=min_voice_quality,
             min_emotion_count=min_emotion_count,
+            max_emotion_count=max_emotion_count,
+            emotion_type=emotion_type,
+            limit=limit,
             from_tracking_sheet=from_tracking_sheet,
             tracking_sheet_path=tracking_sheet_path,
             n_filtered_from_tracking_sheet=n_filtered_from_tracking_sheet,
@@ -748,7 +753,7 @@ def filter_data_on_condition(
 # yapf: enable
 
 
-def filter_qna_by_emotion_count(data: list, min_emotion_count: int = 1):
+def filter_qna_by_emotion_count_and_type(data: list, min_emotion_count: int = 1, max_emotion_count: int = 5, emotion_type: list = []):
     """
     Filters a list of data dictionaries based on the number of unique emotions
     (answers) in their associated QNA file.
@@ -770,6 +775,10 @@ def filter_qna_by_emotion_count(data: list, min_emotion_count: int = 1):
         filtered_data: A new list containing only the data dictionaries that
                        meet the minimum emotion count criterion.
     """
+    unique_emotion_type = [emotion for emotion, _ in DEFAULT_QNA_ANSWER_COLOR_MAP.items()]
+    if len(emotion_type) > 0: unique_emotion_type = list(set(unique_emotion_type) & set(emotion_type))
+    unique_emotion_type = list(unique_emotion_type)
+
     filtered_data = []
     for data_item in tqdm(data, desc="QNA UNIQUE COUNT"):
         qna_path = data_item.get('qa')
@@ -786,7 +795,8 @@ def filter_qna_by_emotion_count(data: list, min_emotion_count: int = 1):
 
             unique_emotion_count = df['answer'].nunique()
 
-            if unique_emotion_count >= min_emotion_count:
+            if unique_emotion_count >= min_emotion_count \
+                and unique_emotion_count <= max_emotion_count:
                 filtered_data.append(data_item)
 
         except pd.errors.EmptyDataError:
