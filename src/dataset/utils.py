@@ -396,7 +396,7 @@ def filter_data_on_condition(
         raise (ValueError(f"Root directory not found: {root}"))
     if not Path(pottery_path).exists():
         raise (ValueError(f"Pottery directory not found: {pottery_path}"))
-    processed_dir = "\\".join(Path(root).parts[:-1]) / Path('processed')
+    processed_dir = "/".join(Path(root).parts[:-1]) / Path('processed')
     processed_pottery_dir = processed_dir / Path(pottery_dirname)
     
     os.makedirs(processed_dir, exist_ok=True)
