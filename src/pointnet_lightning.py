@@ -264,8 +264,8 @@ if __name__ == '__main__':
     datamodule = JomonKaenDataModule(
         # data_root=r"D:\storage\jomon_kaen\data",
         # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        data_root="home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data",
-        pottery_path="home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
+        data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data",
+        pottery_path="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         num_points=NUM_POINTS

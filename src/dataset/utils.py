@@ -398,8 +398,13 @@ def filter_data_on_condition(
         raise (ValueError(f"Pottery directory not found: {pottery_path}"))
     processed_dir = "\\".join(Path(root).parts[:-1]) / Path('processed')
     processed_pottery_dir = processed_dir / Path(pottery_dirname)
-    os.makedirs(processed_dir, exist_ok=True)
-    os.makedirs(processed_pottery_dir, exist_ok=True)
+    
+    original_umask = os.umask(0)
+    try:
+        os.makedirs(processed_dir, exist_ok=True, mode=0o777)
+        os.makedirs(processed_pottery_dir, exist_ok=True, mode=0o777)
+    finally:
+        os.umask(original_umask)
 
     pottery_ids = [f"{pid}({ASSIGNED_NUMBERS_DICT[pid]})" for pid in pottery_ids]
 
