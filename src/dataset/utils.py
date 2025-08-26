@@ -25,6 +25,7 @@ import pandas as pd #
 import open3d as o3d #
 
 import matplotlib
+import japanize_matplotlib
 
 from dataset.processing.affective_state import process_questionnaire_answers_fast, process_questionnaire_answers_markers
 from dataset.processing.aggregation import generate_gaze_pointcloud_heatmap, generate_voxel_from_mesh
@@ -48,8 +49,11 @@ DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 
 # Colors
 # Gaze duration gradient from bright Cyan to dark Red
-cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
-DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
+# cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
+# DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
+
+cyan_to_black_colors = [(0.0, 0.0, 0.0), (0.0, 1.0, 1.0)]
+DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_black", cyan_to_black_colors)
 
 # DEFAULT_CMAP = plt.get_cmap('jet')
 
@@ -150,6 +154,7 @@ ASSIGNED_NUMBERS_DICT = {
     'SK0035': '91',
     'TK0020': '92',
     'UD0028': '93',
+    'rembak7': 'A',
 }
 
 # QNA Answer Color
@@ -180,18 +185,22 @@ DEFAULT_QNA_ANSWER_COLOR_MAP = {
      },
      "Beautiful and artistic": {
           "rgb": [0, 255, 0],
+        # "rgb": [0, 255, 255],
           "name": "green"
      },
      "Strange and incomprehensible": {
           "rgb": [255, 255, 0],
+        # "rgb": [0, 255, 255],
           "name": "yellow"
      },
      "Creepy / unsettling / scary": {
           "rgb": [255, 0, 0],
+        # "rgb": [0, 255, 255],
           "name": "red"
      },
      "Feel nothing": {
           "rgb": [128, 128, 128],
+        # "rgb": [0, 255, 255],
           "name": "grey"
      },
 }
@@ -449,7 +458,7 @@ def filter_data_on_condition(
                 processed_pottery_path = processed_session_path / Path(p)
 
                 pointcloud_path = pottery_path / Path("pointcloud.csv")
-                qa_path = pottery_path / Path("qa.csv")
+                qa_path = pottery_path / Path("qa_corrected.csv")
                 model_path = pottery_path / Path("model.obj")
                 voice_path = pottery_path / Path("session_audio_0.wav")
 
@@ -678,7 +687,7 @@ def filter_data_on_condition(
                             gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
                     else:
-                        qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answers_fast(
+                        qa_pointcloud, qa_segmented_mesh, combined_mesh, timeline_fig = process_questionnaire_answers_fast(
                             input_file=data_paths['qa'],
                             model_file=data_paths['model'],
                             base_color=base_color,
@@ -688,6 +697,7 @@ def filter_data_on_condition(
                         )
                     active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
                     active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
+                    active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
 
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
