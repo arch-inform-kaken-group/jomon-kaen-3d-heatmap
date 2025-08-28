@@ -332,10 +332,9 @@ def process_questionnaire_answers_markers(
     min_bound = mesh.get_min_bound()
     max_bound = mesh.get_max_bound()
     max_range = np.max(max_bound - min_bound)
-    # marker_size = max_range / 125
 
-    marker_size = max_range / 110
-    # marker_size = max_range / 50
+    # marker_size = max_range / 110
+    marker_size = max_range / 55
 
     # 1. Create Base Geometries (Templates)
     # This is done only ONCE per shape type for maximum efficiency.

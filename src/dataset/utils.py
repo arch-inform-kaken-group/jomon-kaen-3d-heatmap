@@ -20,26 +20,25 @@ import sys
 import threading
 import queue
 
-import numpy as np #
-import pandas as pd #
-import open3d as o3d #
+import numpy as np  #
+import pandas as pd  #
+import open3d as o3d  #
 
 import matplotlib
 import japanize_matplotlib
 
 from dataset.processing.affective_state import process_questionnaire_answers_fast, process_questionnaire_answers_markers
 from dataset.processing.aggregation import generate_gaze_pointcloud_heatmap, generate_voxel_from_mesh
-from dataset.processing.fixation import generate_gaze_visualizations_from_files, generate_fixation_pointcloud_heatmap #
-from dataset.processing.pottery import voxelize_pottery_dogu #
-from dataset.processing.report import generate_filtered_dataset_report #
-from dataset.processing.sanity_check import analyze_and_plot_point_cloud, generate_original_pointcloud #
-from dataset.processing.voice import process_voice_data #
+from dataset.processing.fixation import generate_gaze_visualizations_from_files, generate_fixation_pointcloud_heatmap  #
+from dataset.processing.pottery import voxelize_pottery_dogu  #
+from dataset.processing.report import generate_filtered_dataset_report  #
+from dataset.processing.sanity_check import analyze_and_plot_point_cloud, generate_original_pointcloud  #
+from dataset.processing.voice import process_voice_data  #
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-from tqdm import tqdm #
-
+from tqdm import tqdm  #
 
 # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
 # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
@@ -53,7 +52,8 @@ DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 # DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
 
 cyan_to_black_colors = [(0.0, 0.0, 0.0), (0.0, 1.0, 1.0)]
-DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_black", cyan_to_black_colors)
+DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_black",
+                                                 cyan_to_black_colors)
 
 # DEFAULT_CMAP = plt.get_cmap('jet')
 
@@ -161,48 +161,54 @@ ASSIGNED_NUMBERS_DICT = {
 DEFAULT_QNA_ANSWER_COLOR_MAP = {
     "面白い・気になる形だ": {
         "rgb": [0, 255, 255],
+        # "rgb": [255, 255, 255],
         "name": "cyan"
     },
     "美しい・芸術的だ": {
         "rgb": [0, 255, 0],
+        # "rgb": [255, 255, 255],
         "name": "green"
     },
     "不思議・意味不明": {
         "rgb": [255, 255, 0],
+        # "rgb": [255, 255, 255],
         "name": "yellow"
     },
     "不気味・不安・怖い": {
         "rgb": [255, 0, 0],
+        # "rgb": [255, 255, 255],
         "name": "red"
     },
     "何も感じない": {
         "rgb": [128, 128, 128],
+        # "rgb": [255, 255, 255],
         "name": "grey"
     },
     "Interesting and attentional shape": {
-          "rgb": [0, 255, 255],
-          "name": "cyan"
-     },
-     "Beautiful and artistic": {
-          "rgb": [0, 255, 0],
-        # "rgb": [0, 255, 255],
-          "name": "green"
-     },
-     "Strange and incomprehensible": {
-          "rgb": [255, 255, 0],
-        # "rgb": [0, 255, 255],
-          "name": "yellow"
-     },
-     "Creepy / unsettling / scary": {
-          "rgb": [255, 0, 0],
-        # "rgb": [0, 255, 255],
-          "name": "red"
-     },
-     "Feel nothing": {
-          "rgb": [128, 128, 128],
-        # "rgb": [0, 255, 255],
-          "name": "grey"
-     },
+        "rgb": [0, 255, 255],
+        # "rgb": [255, 255, 255],
+        "name": "cyan"
+    },
+    "Beautiful and artistic": {
+        "rgb": [0, 255, 0],
+        # "rgb": [255, 255, 255],
+        "name": "green"
+    },
+    "Strange and incomprehensible": {
+        "rgb": [255, 255, 0],
+        # "rgb": [255, 255, 255],
+        "name": "yellow"
+    },
+    "Creepy / unsettling / scary": {
+        "rgb": [255, 0, 0],
+        # "rgb": [255, 255, 255],
+        "name": "red"
+    },
+    "Feel nothing": {
+        "rgb": [128, 128, 128],
+        # "rgb": [255, 255, 255],
+        "name": "grey"
+    },
 }
 
 # Threading
@@ -225,7 +231,6 @@ fixation_heatmap_filename = "fixation_heatmap"
 MESH_PC_VOXEL_EXTENSION = ".ply"
 VOICE_EXTENSION = ".mp3"
 SANITY_CHECK_EXTENSION = ".png"
-
 
 ### UTILS ###
 
@@ -407,7 +412,7 @@ def filter_data_on_condition(
         raise (ValueError(f"Pottery directory not found: {pottery_path}"))
     processed_dir = "/".join(Path(root).parts[:-1]) / Path('processed')
     processed_pottery_dir = processed_dir / Path(pottery_dirname)
-    
+
     os.makedirs(processed_dir, exist_ok=True)
     os.makedirs(processed_pottery_dir, exist_ok=True)
 
@@ -530,7 +535,7 @@ def filter_data_on_condition(
                     save_path = processed_pottery_dir / f"{str(pottery_dogu_path).split('\\')[-1].split('.')[0]}{MESH_PC_VOXEL_EXTENSION}"
                     data_paths['processed_pottery_path'] = str(save_path)
                     unique_pottery_dogu_voxel.add(str(pottery_dogu_path))
-                    
+
                     if (limit_track[p] < limit):
                         limit_track[p] += 1
                         data.append(data_paths)
@@ -613,7 +618,7 @@ def filter_data_on_condition(
             if generate_sanity_check:
                 sanity_plot = analyze_and_plot_point_cloud(csv_file_path=data_paths['pointcloud'])
                 active_threads.append(save_plot_threaded(data_paths[sanity_plot_filename], sanity_plot, error_queue))
-        
+
                 original_pointcloud = generate_original_pointcloud(input_file=data_paths['pointcloud'])
                 active_threads.append(save_geometry_threaded(data_paths[original_pointcloud_filename], original_pointcloud, error_queue))
 
@@ -678,13 +683,13 @@ def filter_data_on_condition(
                     pass
                 else:
                     if qna_marker:
-                            qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answers_markers(
-                            input_file=data_paths['qa'],
-                            model_file=data_paths['model'],
-                            base_color=base_color,
-                            qna_answer_color_map=qna_answer_color_map,
-                            hololens_2_spatial_error=hololens_2_spatial_error,
-                            gaussian_denominator=GAUSSIAN_DENOMINATOR
+                        qa_pointcloud, qa_segmented_mesh, combined_mesh = process_questionnaire_answers_markers(
+                        input_file=data_paths['qa'],
+                        model_file=data_paths['model'],
+                        base_color=base_color,
+                        qna_answer_color_map=qna_answer_color_map,
+                        hololens_2_spatial_error=hololens_2_spatial_error,
+                        gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
                     else:
                         qa_pointcloud, qa_segmented_mesh, combined_mesh, timeline_fig = process_questionnaire_answers_fast(
@@ -695,9 +700,10 @@ def filter_data_on_condition(
                             hololens_2_spatial_error=hololens_2_spatial_error,
                             gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
+                        active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
+
                     active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
                     active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
-                    active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
 
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
@@ -711,7 +717,7 @@ def filter_data_on_condition(
                     pass
                 else:
                     audio_segment = process_voice_data(data_paths['voice'])
-                    
+
                     audio_segment.export(
                         data_paths[processed_voice_filename],
                         format="mp3",
@@ -764,7 +770,10 @@ def filter_data_on_condition(
 # yapf: enable
 
 
-def filter_qna_by_emotion_count_and_type(data: list, min_emotion_count: int = 1, max_emotion_count: int = 5, emotion_type: list = []):
+def filter_qna_by_emotion_count_and_type(data: list,
+                                         min_emotion_count: int = 1,
+                                         max_emotion_count: int = 5,
+                                         emotion_type: list = []):
     """
     Filters a list of data dictionaries based on the number of unique emotions
     (answers) in their associated QNA file.
@@ -786,8 +795,12 @@ def filter_qna_by_emotion_count_and_type(data: list, min_emotion_count: int = 1,
         filtered_data: A new list containing only the data dictionaries that
                        meet the minimum emotion count criterion.
     """
-    unique_emotion_type = [emotion for emotion, _ in DEFAULT_QNA_ANSWER_COLOR_MAP.items()]
-    if len(emotion_type) > 0: unique_emotion_type = list(set(unique_emotion_type) & set(emotion_type))
+    unique_emotion_type = [
+        emotion for emotion, _ in DEFAULT_QNA_ANSWER_COLOR_MAP.items()
+    ]
+    if len(emotion_type) > 0:
+        unique_emotion_type = list(
+            set(unique_emotion_type) & set(emotion_type))
     unique_emotion_type = list(unique_emotion_type)
 
     filtered_data = []

@@ -9,26 +9,29 @@ def main():
         root="./src/data",
         # root="c:/Users/luhou/Downloads/raw_my",
         pottery_path="./src/pottery",
-        # hololens_2_spatial_error=1.5,
-        hololens_2_spatial_error=0.1,
+        hololens_2_spatial_error=1.5,
+        # hololens_2_spatial_error=0.1,
         preprocess=True,
         use_cache=False,
-        # cmap=plt.get_cmap('gray'),
+        ####################################################################
         # session_ids=[
         #     "2025_07_02_18_03_06", "2025_07_02_16_54_58",
         #     "2025_07_09_10_26_16", "2025_07_17_09_12_35", "2025_06_30_18_45_20"
         # ],
-        pottery_ids=["IN0295", "IN0017", "TK0020", "UD0023", "NM0099"],
-        limit=1000,
-        min_emotion_count=3,
-        min_qa_size=20,
+        # pottery_ids=["IN0295", "IN0017", "TK0020", "UD0023", "NM0099"],
+        # pottery_ids=["IN0017", "TK0020"],
+        # limit=1000,
+        # min_emotion_count=3,
+        # min_qa_size=20,
+        ####################################################################
         # session_ids=["2025_07_10_11_03_23", "2025_07_10_08_46_51", "2025_06_25_19_31_00", "2025_07_10_11_11_25"],
         # min_emotion_count=1,
         # max_emotion_count=1,
-        # qna_marker=True,
+        qna_marker=True,
         # pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=1,
+        ####################################################################
         # groups=['GX'],
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
