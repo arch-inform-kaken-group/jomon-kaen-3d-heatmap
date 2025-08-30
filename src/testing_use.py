@@ -6,7 +6,7 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root="./src/data",
+        root="./src/data/japan",
         # root="c:/Users/luhou/Downloads/raw_my",
         pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,

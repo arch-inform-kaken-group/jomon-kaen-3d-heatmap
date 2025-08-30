@@ -20,6 +20,138 @@ from google.cloud.speech_v2.types import cloud_speech
 import torch
 from transformers import pipeline
 
+CUSTOM_ENGLISH_FINAL_PROMPT = """
+You are a helpful assistant that fixes the transcribing errors based on:
+- The audio data
+- The INITIAL TRANSCRIPT
+- The examples given below
+
+You need to give the FINAL TRANSCRIPT as output. 
+Only give the transcript that is corrected, do not give any error, warning, code, irrelevant information, and commentary.
+
+The audio data was collected from participants viewing Japanese pottery displayed on HoloLens 2 device, Unity program.
+
+Things to EXCLUDE from the FINAL TRANSCRIPT are:
+- Background voice / sounds
+- Other conversation other than commentary on the pottery
+- Instruction like sentences given to confused participants (the instruction like sentence should be excluded)
+- Comments on the HoloLens 2 device, or about the Unity program
+
+NEVER add any new sentences not found in the audio, do not hallucinate, do not add you own comments.
+Within these constraints, make sure the grammar of sentences are correct.
+
+---
+
+EXAMPLE 1 (removing question asked by participant to experiment assistants, and background Japanese conversation between experiment assistants):
+
+INITIAL TRANSCRIPT: 
+Okay. Oh, so I need to talk about this figurine. 彼はまだ先生に聞いてないと思うから最初からやり直して。今始まって。え、1個It looks like ini agak-agak aneh. Saya tak faham apa feature ni dan pastikan.
+
+FINAL TRANSCRIPT: 
+It looks like ini agak aneh. Saya tak faham apa feature ni.
+
+---
+
+EXAMPLE 2 (removing words that do not fit in the context, and conversation with other participants): 
+
+INITIAL TRANSCRIPT: 
+They're nice 'cause they're very big and it looks so great.
+Milo, Milo.
+Afternoon.
+But inside is very small, even though uh, at the outside looks big. But inside, yeah.
+Kita tengah bercakap ke? Ha ah. Kelakar.
+
+FINAL TRANSCRIPT: 
+They're nice 'cause they're very big and it looks so great.
+But inside is very small, even though, at the outside it looks big.
+
+---
+
+EXAMPLE 3 (making sure the chinese characters are in simplified chinese):
+
+INITIAL TRANSCRIPT:
+It's look very strange.
+And it's hollow inside.
+Looks like a dinosaur bone pot.
+像個骨頭一樣的雕刻。
+很特別的設計。
+看起來有點條紋。
+有點像。
+
+FINAL TRANSCRIPT:
+It looks very strange.
+And it's hollow inside.
+Looks like a dinosaur bone pot.
+像个骨头一样的雕刻。
+很特别的设计。
+看起来有点条纹。
+有点像恐龙。
+
+---
+
+EXAMPLE 4 (correction of 1 word, maybe -> bagi, only in limited cases this example applies)
+
+INITIAL TRANSCRIPT: 
+So, maybe aku design ni. Macam lebih kurang dengan yang sebelum ni. Cuma yang atas ni, yang atas tu agak lain. And yang atas tu nampak macam bersimpul. So ya, tu je rasa yang bezanya. Yang lain, yang lain lagi macam corak dia agak lain sikit. So atas ni macam tak tajam. Macam terpajam. Sebagai aku tahu, function tak apa. Maybe just perhiasan saja. So, I think, ya. Namun itu untuk pegang semua ke? So itu je aku rasa.
+
+FINAL TRANSCRIPT: 
+So, bagi aku design ni. Macam lebih kurang dengan yang sebelum ni. Cuma yang atas ni, yang atas tu agak lain. And yang atas tu nampak macam bersimpul. So ya, tu je rasa yang bezanya. Yang lain, yang lain lagi macam corak dia agak lain sikit. So atas ni macam tak tajam. Macam terpajam. Sebagai aku tahu, function tak apa. Maybe just perhiasan saja. So, I think, ya. Namun itu untuk pegang semua ke? So itu je aku rasa.
+
+---
+
+EXAMPLE 5 (remove background noise, correct mistakes caused by transcribing Malay language shortform words and mixing of English):
+
+INITIAL TRANSCRIPT:
+Mmm.
+Gak ada ini lagi menarik daripada yang tu sebab membentuk.
+More like kita punya nampak.
+Macam ni lagi tu.
+Malaysia punya pinggan.
+Dia kata, "Okey."
+Awak balik ah.
+Insha Allah.
+Betul ni menarik lagi dari tadi.
+Where I can see the like.
+Boleh nampak dah kaca dia macam mana.
+Yang beli yang tadi tak nampak sangat dia punya...
+
+FINAL TRANSCRIPT:
+Yang ini lagi menarik daripada yang sebelum sebab bentuknya.
+More like kita punya nampak.
+Macam ni lagi tu.
+Malaysia punya thing ah.
+Bentuk ni menarik lagi dari tadi.
+Where I can see the like.
+Boleh nampak lah kaca dia macam mana.
+Daripada yang tadi tak nampak sangat dia punya...
+
+---
+
+EXAMPLE 6 (removing rephrasing of question and filler words):
+
+INITIAL TRANSCRIPT:
+Please speak your overall or partial impression of this pottery. Oh. Uh. I feel that it is very nicely preserved. And it looks quite different from modern vase. And actually, I don't see any sign of aging at all. So, yeah. Uh, good job.
+
+FINAL TRANSCRIPT:
+I feel that it is very nicely preserved. And it looks quite different from modern vase. And actually, I don't see any sign of aging at all.
+
+---
+
+EXAMPLE 6 (removing comments on HoloLens 2 and Unity program):
+
+INITIAL TRANSCRIPT:
+I hope that the hologram, the night's hologram can be moved 360 instead of myself. Because I think it's more cooler than than just standing here, static. But visual-wise, I think it's just the same as before, cool. But this one particular pot is actually cooler than I expect it would be, 'cause like it has like holes. And I can see the deeper holes here at the side, like at the top. Yeah, super cool. And the inside as well, I can see the sand, I think. I'm not, I don't know, I'm assuming.
+
+FINAL TRANSCRIPT:
+But visual-wise, I think it's just the same as before, cool. But this one particular pot is actually cooler than I expect it would be, because it has holes. And I can see the deeper holes here at the side, like at the top. Yeah, super cool. And the inside as well, I can see the sand.
+
+---
+
+Below is the INITIAL TRANSCRIPT to correct:
+
+INITIAL TRANSCRIPT:
+"""
+
 model_id = "kotoba-tech/kotoba-whisper-v2.0"
 torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -43,7 +175,9 @@ TRANSCRIBE_VOICE_DATA = False
 TRANSCRIBE_VOICE_DATA_KOTOBA = False
 
 REFINE_TRANSCRIPT = False
-REFINE_TRANSCRIPT_KOTOBA = True
+REFINE_TRANSCRIPT_KOTOBA = False
+
+MAKE_FINAL_TRANSCRIPT = True
 
 # Load environment variables from .env file
 load_dotenv()
@@ -302,6 +436,57 @@ def transcribe_audio_kotoba_whisper_v2(audio_file: str):
     return result
 
 
+def make_final_transcript(audio_file_path: str, transcript_to_refine: str, custom_prompt: str) -> str:
+    """
+    Refines a given transcript string using the Gemini API, an audio file, and a custom prompt.
+
+    This function is generalized to accept any initial transcript as a string and any 
+    refinement instructions via the prompt, making it highly reusable.
+
+    Args:
+        audio_file_path (str): The path to the audio file (e.g., MP3, WAV).
+        transcript_to_refine (str): The initial, imperfect transcript text to be refined.
+        custom_prompt (str): The specific instructions for the Gemini model on how to
+                             refine the transcript.
+
+    Returns:
+        str: The refined transcript text from the Gemini API, or an error message if something goes wrong.
+    """
+    try:
+        print(f"Refining transcript for {audio_file_path} with custom prompt...")
+
+        # STEP 1: Upload the audio file to the Gemini API.
+        # This is necessary for multi-modal prompting.
+        audio_file_part = client.files.upload(
+            file=audio_file_path, 
+            config={"mime_type": "audio/mp3"} # Adjust mime_type if using other formats like 'audio/wav'
+        )
+
+        # STEP 2: Construct the contents for the API call.
+        # This list combines the custom instructions (prompt), the text to be refined,
+        # and the uploaded audio file for context.
+        contents = [
+            custom_prompt,
+            transcript_to_refine,
+            audio_file_part
+        ]
+        
+        # STEP 3: Call the Gemini model to generate the refined content.
+        # a powerful and efficient multi-modal model suitable for this task.
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=contents
+        )
+
+        # STEP 4: Return the refined text, stripping any leading/trailing whitespace.
+        return response.text.strip()
+
+    except FileNotFoundError:
+        return f"Error: The audio file was not found at {audio_file_path}"
+    except Exception as e:
+        return f"An error occurred while refining the transcript with Gemini: {e}"
+
+
 CORRECTION_MAP = {
     "面白い・気になる形だ": "面白い・気になる形だ",
     "不思議・意味不明": "美しい・芸術的だ",
@@ -370,6 +555,7 @@ def main(root="", output_dir=""):
                 voice_save_path = save_path / "session_audio_45s.mp3"
                 transcript_save_path = save_path / "raw_transcript.json"
                 refined_transcript_save_path = save_path / "refined_transcript.txt"
+                final_transcript_save_path = save_path / "final_transcript.txt"
 
                 # Check if paths exist and increment error
                 if model_path.exists():
@@ -398,8 +584,8 @@ def main(root="", output_dir=""):
                     data_paths['voice'] = str(voice_path)
                     data_paths['voice_save'] = str(voice_save_path)
                     data_paths['transcript_save'] = str(transcript_save_path)
-                    data_paths['refined_transcript_save'] = str(
-                        refined_transcript_save_path)
+                    data_paths['refined_transcript_save'] = str(refined_transcript_save_path)
+                    data_paths['final_transcript_save'] = str(final_transcript_save_path)
                 else:
                     errors = increment_error('Voice path does not exist',
                                              str(voice_path), errors)
@@ -487,6 +673,15 @@ def main(root="", output_dir=""):
                     errors = increment_error(
                         'Raw transcript not found for refinement',
                         str(data_paths['transcript_save']), errors)
+                    
+            if MAKE_FINAL_TRANSCRIPT:
+                if Path(data_paths['refined_transcript_save']).exists():
+                    print(f"FINALIZING: {data_paths['refined_transcript_save']}")
+                    finalized_transcript = make_final_transcript(audio_file_path=data_paths['voice_save'], transcript_to_refine=data_paths['refined_transcript_save'], custom_prompt=CUSTOM_ENGLISH_FINAL_PROMPT)
+                    with open(data_paths['final_transcript_save'],
+                              "w",
+                              encoding='utf-8') as f:
+                        f.write(finalized_transcript)
 
     print('MODEL\t|\tPC\t|\tQA\t|\tVOICE\t|\tTRANSCRIPT')
     print(model_count, '\t|\t', pc_count, '\t|\t', qa_count, '\t|\t',
@@ -494,12 +689,12 @@ def main(root="", output_dir=""):
 
 
 if __name__ == "__main__":
-    main(
-        root=r"D:\storage\jomon_kaen\data",
-        output_dir=r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan",
-    )
-
     # main(
-    #     root="./src/data_my",
-    #     output_dir="./src/jomon_kaen_dataset/malaysia",
+    #     root=r"D:\storage\jomon_kaen\data",
+    #     output_dir=r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan",
     # )
+
+    main(
+        root="./src/data_my",
+        output_dir="./src/jomon_kaen_dataset/malaysia",
+    )

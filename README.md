@@ -56,9 +56,9 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 
 1. Create a folder in the `src` directory called `data`
 
-1. Download the raw data [Google Drive](https://drive.google.com/drive/folders/1vzZZfysW4tDlc2oXPpJ2WI2H3DBBufG6?usp=drive_link)
+1. Download the cleaned data [Japan](https://drive.google.com/file/d/1OetZFTXpzAPe5ZcNBdGylORAe_s6UxGR/view?usp=sharing) AND / OR [MALAYSIA](https://drive.google.com/file/d/1qNQJ-ipZ3IoATHDDP6gNDjIfT65aogTq/view?usp=sharing)
 
-1. Paste all group folders (*i.e. G1, G2*) into the `data` directory
+1. Place both inside the `data` directory
 
 1. Create a folder in the `src` directory called `pottery`
 
