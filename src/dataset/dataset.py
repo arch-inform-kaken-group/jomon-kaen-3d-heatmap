@@ -78,6 +78,7 @@ def get_jomon_kaen_dataset(
         pottery_path (str): Path to pottery files
         preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
         split (float): Fraction of test dataset. Default: 0.1,
+        test_groups (list): Pottery IDs to use as test group, n=excluded from training. Default: []
         seed (int): np.random.seed(42),
         mode (int): 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR

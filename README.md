@@ -68,14 +68,47 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 
 1. Filter the data by passing in the arguments or by using a [tracking sheet](https://docs.google.com/spreadsheets/d/1FLe6tAEtF5eAC3YXU8YLfOeI-VT83V1C/edit?usp=sharing&ouid=100175822335349725367&rtpof=true&sd=true) to the `filter_data_on_condition` function
 
-1. Run the script, visualizations will be created inside each model folder
+1. Run the script, visualizations will be created inside each model folder / use the dataloader function `get_jomon_kaen_dataset` in [**SCRIPT**](src/dataset/dataset.py)
+
+---
 
 Modify the parameters for different results in the `filter_data_on_condition` function
 
+**Example Using `split`**
+
 ```python
-root (str): Root directory that contains all groups
+train_dataset, test_dataset = get_jomon_kaen_dataset(
+        root="./src/data/japan",
+        pottery_path="./src/pottery",
+        split=0.25,
+        preprocess=True,
+        use_cache=True,
+        # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
+        mode=3,
+    )
+```
+
+**Example using Pottery ID to group**
+
+```python
+train_dataset, test_dataset = get_jomon_kaen_dataset(
+        root="./src/data/japan",
+        pottery_path="./src/pottery",
+        test_groups=["IN0017", "TK0020"],
+        preprocess=True,
+        use_cache=True,
+        # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
+        mode=3,
+    )
+```
+
+```python
+root (str): Root directory that contains all groups 
 pottery_path (str): Path to pottery files
 preprocess (bool): Weather to preprocess and save the data to processed folder. Default: True
+split (float): Fraction of test dataset. Default: 0.1,
+test_groups (list): Pottery IDs to use as test group, n=excluded from training. Default: []
+seed (int): np.random.seed(42),
 mode (int): 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
 hololens_2_spatial_error (float): Eye tracker spatial error of HoloLens 2. Default: DEFAULT_HOLOLENS_2_SPATIAL_ERROR
 target_voxel_resolution (int): Target heatmap voxel resolution. Default: DEFAULT_TARGET_VOXEL_RESOLUTION
