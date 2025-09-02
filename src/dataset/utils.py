@@ -352,6 +352,7 @@ def filter_data_on_condition(
         qna_answer_color_map (dict): The dictionary containing QNA answers with the rbg & name (color name). Default: DEFAULT_QNA_ANSWER_COLOR_MAP
         base_color (list): Background color of all generated data. Default: DEFAULT_BASE_COLOR
         cmap (plt.Colormap): Color scheme for intensities. Default: DEFAULT_CMAP
+        limit (int): Max of each pottery instance. Default: 9
         groups (list): The list of groups to include, leave empty for all groups. Default: []
         session_ids (list): The list of sessions to include, leave empty for all sessions. Default: []
         pottery_ids (list): The list of potteries to include, leave empty for all potteries. Default: []

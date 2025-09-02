@@ -105,13 +105,15 @@ class JomonKaenDataModule(pl.LightningDataModule):
         }
         if stage == 'fit' or stage is None:
             self.train_dataset, self.val_dataset = get_jomon_kaen_dataset(
-                split=0.1,
+                # split=0.1,
+                test_groups=["TK0020", "IN0017", "TJ0004"],
                 use_cache=True,
                 **common_params
             )
         if stage == 'predict':
             _ , self.predict_dataset = get_jomon_kaen_dataset(
-                split=0.1,
+                # split=0.1,
+                test_groups=["TK0020", "IN0017", "TJ0004"],
                 use_cache=True,
                 **common_params
             )
@@ -264,7 +266,7 @@ if __name__ == '__main__':
     datamodule = JomonKaenDataModule(
         # data_root=r"D:\storage\jomon_kaen\data",
         # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data",
+        data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data_my",
         pottery_path="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
