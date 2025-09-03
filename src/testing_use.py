@@ -6,12 +6,12 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root="./src/data/japan",
-        # root="c:/Users/luhou/Downloads/raw_my",
+        # root="./src/data",
+        root="./src/data_my",
         pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
-        preprocess=True,
+        preprocess=False,
         use_cache=False,
         ####################################################################
         # session_ids=[
@@ -27,7 +27,7 @@ def main():
         # session_ids=["2025_07_10_11_03_23", "2025_07_10_08_46_51", "2025_06_25_19_31_00", "2025_07_10_11_11_25"],
         # min_emotion_count=1,
         # max_emotion_count=1,
-        qna_marker=True,
+        # qna_marker=True,
         # pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=1,

@@ -1,15 +1,16 @@
 from copy import deepcopy
 from pathlib import Path
 
-import numpy as np #
-import pandas as pd #
-import open3d as o3d #
-from tqdm import tqdm #
+import numpy as np  #
+import pandas as pd  #
+import open3d as o3d  #
+from tqdm import tqdm  #
 import matplotlib  #
 import japanize_matplotlib
+
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt #
-import matplotlib.patches as mpatches #
+import matplotlib.pyplot as plt  #
+import matplotlib.patches as mpatches  #
 
 # yapf: disable
 # def process_questionnaire_answers_fast(
@@ -134,7 +135,7 @@ def process_questionnaire_answers_fast(
     df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce") # Ensure timestamp is numeric
     df["answer"] = df["answer"].astype(str).str.strip()
     df.dropna(subset=["estX", "estY", "estZ", "answer", "timestamp"], inplace=True)
-    
+
     # Sort by timestamp for correct timeline plotting
     df = df.sort_values('timestamp').reset_index(drop=True)
 
@@ -224,7 +225,7 @@ def process_questionnaire_answers_fast(
 
     # Duration of a block is its end time minus its start time.
     block_df['duration'] = block_df['end_time'] - block_df['start_time']
-    
+
     # Map answers to colors, normalizing RGB from [0, 255] to [0, 1]
     colors = [
         np.array(qna_answer_color_map.get(ans, {"rgb": [128, 128, 128]})["rgb"]) / 255.0
@@ -232,26 +233,26 @@ def process_questionnaire_answers_fast(
     ]
 
     timeline_fig, ax = plt.subplots(figsize=(15, 2))
-    
+
     # Plot each block as a bar. Gaps will appear as white space.
     ax.barh(y=[0] * len(block_df), width=block_df['duration'], left=block_df['start_time'], color=colors, height=1)
-    
+
     # Formatting the plot
     ax.set_yticks([])
     ax.set_xlabel("Time (seconds)")
     ax.set_xlim(left=0)
-    
+
     # Extract pottery ID from the input file path for the title
     pottery_id_title = Path(input_file).parent.name
     ax.set_title(f"Emotion Timeline for {pottery_id_title}")
-    
+
     # Create custom legend
     legend_patches = [
         mpatches.Patch(color=np.array(info["rgb"]) / 255.0, label=name)
         for name, info in qna_answer_color_map.items()
     ]
     ax.legend(handles=legend_patches, bbox_to_anchor=(1.02, 1), loc='upper left')
-    
+
     timeline_fig.tight_layout(rect=[0, 0, 0.85, 1])
 
     return qa_pcd, qa_segmented_meshes, combined_mesh, timeline_fig
@@ -259,10 +260,10 @@ def process_questionnaire_answers_fast(
 
 # MARKERS
 def _create_base_dot_geometry(size):
-  """Creates the base dot geometry (a sphere) at the origin."""
-  marker = o3d.geometry.TriangleMesh.create_sphere(radius=size/1.5)
-  marker.compute_vertex_normals()
-  return marker
+    """Creates the base dot geometry (a sphere) at the origin."""
+    marker = o3d.geometry.TriangleMesh.create_sphere(radius=size/1.5)
+    marker.compute_vertex_normals()
+    return marker
 
 def _create_base_square_geometry(size):
     """Creates the base cube geometry at the origin."""
@@ -334,7 +335,8 @@ def process_questionnaire_answers_markers(
     max_range = np.max(max_bound - min_bound)
 
     # marker_size = max_range / 110
-    marker_size = max_range / 55
+    marker_size = max_range / 75
+    # marker_size = max_range / 55
 
     # 1. Create Base Geometries (Templates)
     # This is done only ONCE per shape type for maximum efficiency.
@@ -375,7 +377,7 @@ def process_questionnaire_answers_markers(
 
         # For each point, copy the template, color it, and move it
         for i, point in enumerate(group_df[["estX", "estY", "estZ"]].values):
-            if (i%4==0):
+            if (i%15==0):
                 # Create a fresh copy to avoid moving the original template
                 marker_instance = deepcopy(template_mesh)
                 marker_instance.paint_uniform_color(color_vec)

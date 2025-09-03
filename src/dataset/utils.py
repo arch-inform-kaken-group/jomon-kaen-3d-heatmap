@@ -160,23 +160,23 @@ ASSIGNED_NUMBERS_DICT = {
 # QNA Answer Color
 DEFAULT_QNA_ANSWER_COLOR_MAP = {
     "面白い・気になる形だ": {
-        "rgb": [0, 255, 255],
-        # "rgb": [255, 255, 255],
+        # "rgb": [0, 255, 255],
+        "rgb": [255, 255, 255],
         "name": "cyan"
     },
     "美しい・芸術的だ": {
-        "rgb": [0, 255, 0],
-        # "rgb": [255, 255, 255],
+        # "rgb": [0, 255, 0],
+        "rgb": [255, 255, 255],
         "name": "green"
     },
     "不思議・意味不明": {
-        "rgb": [255, 255, 0],
-        # "rgb": [255, 255, 255],
+        # "rgb": [255, 255, 0],
+        "rgb": [255, 255, 255],
         "name": "yellow"
     },
     "不気味・不安・怖い": {
-        "rgb": [255, 0, 0],
-        # "rgb": [255, 255, 255],
+        # "rgb": [255, 0, 0],
+        "rgb": [255, 255, 255],
         "name": "red"
     },
     "何も感じない": {
@@ -394,6 +394,7 @@ def filter_data_on_condition(
     # Save error
     # Tracking sheet, data mismatch
     # Missing pottery / dogu regardless of file extension
+    # No point cloud eye gaze data
     #
     # FORMAT:
     # "ERROR": {
@@ -483,15 +484,20 @@ def filter_data_on_condition(
                 if Path(model_path).exists():
                     data_paths['model'] = str(model_path)
                     if Path(pointcloud_path).exists():
-                        data_paths['pointcloud'] = str(pointcloud_path)
-                        data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
-                        data_paths[sanity_plot_filename] = str(output_sanity_plot)
-                        data_paths[eg_pointcloud_filename] = str(output_point_cloud)
-                        data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
-                        data_paths[voxel_filename] = str(output_voxel)
-                        data_paths[fixation_pointcloud_filename] = str(output_fixation_point_cloud)
-                        data_paths[fixation_heatmap_filename] = str(output_fixation_heatmap)
-                        data_paths[original_pointcloud_filename] = str(output_original_point_cloud)
+                        pc = pd.read_csv(Path(pointcloud_path), header=0).to_numpy()
+                        if (pc.shape[0] > 0):
+                            data_paths['pointcloud'] = str(pointcloud_path)
+                            data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
+                            data_paths[sanity_plot_filename] = str(output_sanity_plot)
+                            data_paths[eg_pointcloud_filename] = str(output_point_cloud)
+                            data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
+                            data_paths[voxel_filename] = str(output_voxel)
+                            data_paths[fixation_pointcloud_filename] = str(output_fixation_point_cloud)
+                            data_paths[fixation_heatmap_filename] = str(output_fixation_heatmap)
+                            data_paths[original_pointcloud_filename] = str(output_original_point_cloud)
+                        else:
+                            hm_error = True
+                            errors = increment_error('No point cloud eye gaze data', str(pointcloud_path), errors)
                     else:
                         hm_error = True
                         errors = increment_error('Point cloud path does not exist', str(pointcloud_path), errors)
