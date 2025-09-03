@@ -454,7 +454,7 @@ def filter_data_on_condition(
             pottery_keys = os.listdir(session_path)
             unique_pottery_keys.update(pottery_keys)
             for p in pottery_keys:
-                if (p == 'language.txt'):
+                if (p == 'language.txt' or p == 'gender.txt'):
                     continue
 
                 hm_error = False
