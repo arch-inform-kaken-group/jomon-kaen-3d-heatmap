@@ -106,14 +106,14 @@ class JomonKaenDataModule(pl.LightningDataModule):
         if stage == 'fit' or stage is None:
             self.train_dataset, self.val_dataset = get_jomon_kaen_dataset(
                 # split=0.1,
-                test_groups=["TK0020", "IN0017", "TJ0004"],
+                test_groups=["G17"],
                 use_cache=True,
                 **common_params
             )
         if stage == 'predict':
             _ , self.predict_dataset = get_jomon_kaen_dataset(
                 # split=0.1,
-                test_groups=["TK0020", "IN0017", "TJ0004"],
+                test_groups=["G17"],
                 use_cache=True,
                 **common_params
             )
