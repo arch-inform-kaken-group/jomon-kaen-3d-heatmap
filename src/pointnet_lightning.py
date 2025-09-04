@@ -9,8 +9,6 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import numpy as np
 
-# The get_jomon_kaen_dataset function is expected to be in the dataset/dataset.py file.
-# Make sure the path is correct for your project structure.
 from dataset.dataset import get_jomon_kaen_dataset
 
 
@@ -266,8 +264,6 @@ if __name__ == '__main__':
     datamodule = JomonKaenDataModule(
         # data_root=r"D:\storage\jomon_kaen\data",
         # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data_my",
-        pottery_path="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         num_points=NUM_POINTS
@@ -322,17 +318,17 @@ if __name__ == '__main__':
     )
 
     # Start Training
-    print("\n--- Starting Training ---")
+    print("\nStarting Training")
     trainer.fit(model, datamodule=datamodule)
-    print("--- Training Finished ---")
+    print("Training Finished")
 
     # INFERENCE SECTION
-    print("\n--- Starting Inference ---")
+    print("\nStarting Inference")
     
     # Use the path from the callback that saves the single best model
     best_model_path = best_checkpoint_callback.best_model_path
     if not best_model_path or not os.path.exists(best_model_path):
-        print(f"Error: Could not find best model checkpoint. Was training run?")
+        print(f"Error: Could not find best model checkpoint.")
     else:
         print(f"Loading best model from: {best_model_path}")
         model = PointNetLightningModule.load_from_checkpoint(best_model_path)
@@ -355,7 +351,7 @@ if __name__ == '__main__':
         
         with torch.no_grad():
             for i, (inputs, targets) in enumerate(predict_loader):
-                print(f"Processing batch {i+1}/{len(predict_loader)}...")
+                print(f"Processing batch {i+1}/{len(predict_loader)}")
                 
                 if torch.cuda.is_available():
                     inputs = inputs.to('cuda')
