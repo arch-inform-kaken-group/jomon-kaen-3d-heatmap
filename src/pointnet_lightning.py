@@ -106,14 +106,14 @@ class JomonKaenDataModule(pl.LightningDataModule):
         if stage == 'fit' or stage is None:
             self.train_dataset, self.val_dataset = get_jomon_kaen_dataset(
                 # split=0.1,
-                test_groups=["TK0020", "IN0017", "TJ0004"],
+                test_groups=["G17"],
                 use_cache=True,
                 **common_params
             )
         if stage == 'predict':
             _ , self.predict_dataset = get_jomon_kaen_dataset(
                 # split=0.1,
-                test_groups=["TK0020", "IN0017", "TJ0004"],
+                test_groups=["G17"],
                 use_cache=True,
                 **common_params
             )
@@ -246,7 +246,7 @@ class PointNetLightningModule(pl.LightningModule):
 if __name__ == '__main__':
     # Configuration
     NUM_POINTS = 4096 * 8
-    BATCH_SIZE = 8
+    BATCH_SIZE = 4
     MAX_EPOCHS = 200
     NUM_GPUS = torch.cuda.device_count()
     # Use half of the available CPU cores for data loading to avoid system overload
@@ -264,10 +264,11 @@ if __name__ == '__main__':
 
     # Initialize Data and Model Modules
     datamodule = JomonKaenDataModule(
-        # data_root=r"D:\storage\jomon_kaen\data",
-        # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data_my",
-        pottery_path="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
+        # data_root=r"D:\storage\jomon_kaen\data_my",
+        data_root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
+        # data_root="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/data_my",
+        # pottery_path="/home/luhouyang/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         num_points=NUM_POINTS
