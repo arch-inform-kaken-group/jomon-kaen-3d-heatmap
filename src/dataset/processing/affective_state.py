@@ -206,7 +206,7 @@ def process_questionnaire_answers_fast(
                 segmented_colors[indices] = color_vec
         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
         segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
-        qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = segmented_mesh
+        qa_segmented_meshes[qna_answer_color_map[answer]["name"]] = [segmented_mesh, segmented_colors]
 
     ### Timeline figure
 
