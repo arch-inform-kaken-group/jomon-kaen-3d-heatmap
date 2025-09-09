@@ -12,7 +12,7 @@ def main():
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
         preprocess=True,
-        use_cache=False,
+        use_cache=True,
         ####################################################################
         # session_ids=[
         #     "2025_07_02_18_03_06", "2025_07_02_16_54_58",
@@ -35,12 +35,16 @@ def main():
         # session_ids=["2025_06_25_17_12_43"],
         ####################################################################
         # groups=['GX'],
-        generate_pc_hm_voxel=False,
+        # generate_pc_hm_voxel=False,
         # generate_qna=False,
-        # generate_voice=True,
+        # generate_voice=False,
         # generate_pottery_dogu_voxel=False,
         # generate_sanity_check=True,
         # generate_fixation=True,
+        # generate_pointcloud=False,
+        # generate_mesh=False,
+        generate_voxel=False,
+        # generate_transcript=False,
     )
 
     # data, errors = filter_data_on_condition(

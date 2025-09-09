@@ -331,13 +331,17 @@ def filter_data_on_condition(
     generate_report: bool = True,
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
-    generate_voice: bool = False,
+    generate_voice: bool = True,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
     limit: int = 9,
     generate_fixation: bool = False,
     voxel_color: str = 'gray', # 'gray' | 'rgb'
     qna_marker: bool = False,
+    generate_voxel: bool = True,
+    generate_mesh: bool = True,
+    generate_pointcloud: bool = True,
+    generate_transcript: bool = True,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -642,7 +646,7 @@ def filter_data_on_condition(
                 active_threads.append(save_plot_threaded(data_paths[sanity_plot_filename], sanity_plot, error_queue))
 
                 original_pointcloud = generate_original_pointcloud(input_file=data_paths['pointcloud'])
-                active_threads.append(save_geometry_threaded(data_paths[original_pointcloud_filename], original_pointcloud, error_queue))
+                if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[original_pointcloud_filename], original_pointcloud, error_queue))
 
             if generate_pc_hm_voxel:
                 # Eye gaze intensity point cloud & heatmap
@@ -660,8 +664,8 @@ def filter_data_on_condition(
                         hololens_2_spatial_error=hololens_2_spatial_error,
                         gaussian_denominator=GAUSSIAN_DENOMINATOR
                     )
-                    active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
-                    active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_rgb_filename], eye_gaze_heatmap_rgb_mesh, error_queue))
+                    if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
+                    if generate_mesh: active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_rgb_filename], eye_gaze_heatmap_rgb_mesh, error_queue))
 
                     eye_gaze_voxel = generate_voxel_from_mesh(
                         mesh=mesh_greyscale,
@@ -671,7 +675,7 @@ def filter_data_on_condition(
                         base_color=base_color,
                         base_pottery_pcd=data_paths['processed_pottery_path'],
                     )
-                    active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
+                    if generate_voxel: active_threads.append(save_geometry_threaded(data_paths[voxel_filename], eye_gaze_voxel, error_queue))
 
             if generate_fixation:
                 generate_gaze_visualizations_from_files(
@@ -693,8 +697,8 @@ def filter_data_on_condition(
                     dispersion_threshold=3,
                     min_fixation_duration=0.1,
                 )
-                active_threads.append(save_geometry_threaded(data_paths[fixation_pointcloud_filename], fixation_pointcloud, error_queue))
-                active_threads.append(save_geometry_threaded(data_paths[fixation_heatmap_filename], fixation_heatmap, error_queue))
+                if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[fixation_pointcloud_filename], fixation_pointcloud, error_queue))
+                if generate_mesh: active_threads.append(save_geometry_threaded(data_paths[fixation_heatmap_filename], fixation_heatmap, error_queue))
 
             if generate_qna and (mode==0 or mode==1):
                 # QNA combined point cloud
@@ -722,10 +726,10 @@ def filter_data_on_condition(
                             hololens_2_spatial_error=hololens_2_spatial_error,
                             gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
-                        active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
+                        if generate_sanity_check: active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
 
-                    active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
-                    active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
+                    if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
+                    if generate_mesh: active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
 
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
@@ -740,12 +744,12 @@ def filter_data_on_condition(
                         individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
                         individual_segment_voxelized = data_paths[segmented_meshes_dirname] / Path(f"{k}_voxel.ply")
 
-                        active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
-                        active_threads.append(save_geometry_threaded(individual_segment_voxelized, voxelized_mesh, error_queue))
+                        if generate_mesh: active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
+                        if generate_voxel: active_threads.append(save_geometry_threaded(individual_segment_voxelized, voxelized_mesh, error_queue))
 
-            if generate_voice and (mode==0 or mode==2):
+            if (generate_voice or generate_transcript) and (mode==0 or mode==2):
                 # Voice
-                if use_cache and Path(data_paths[processed_voice_filename]).exists():
+                if use_cache and Path(data_paths[processed_voice_filename]).exists() and Path(data_paths['TRANSCRIPT']).exists():
                     pass
                 else:
                     # audio_segment = process_voice_data(data_paths['voice'])
@@ -756,8 +760,8 @@ def filter_data_on_condition(
                     #     bitrate="16k"
                     # )
 
-                    shutil.copy(data_paths['voice'], data_paths[processed_voice_filename])
-                    shutil.copy(data_paths[final_transcript_filename], data_paths['TRANSCRIPT'])
+                    if generate_voice: shutil.copy(data_paths['voice'], data_paths[processed_voice_filename])
+                    if generate_transcript: shutil.copy(data_paths[final_transcript_filename], data_paths['TRANSCRIPT'])
 
     # In-time processing, only return path to raw data
     else:
