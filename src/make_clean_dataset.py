@@ -152,6 +152,193 @@ Below is the INITIAL TRANSCRIPT to correct:
 INITIAL TRANSCRIPT:
 """
 
+CUSTOM_JAPANESE_FINAL_PROMPT = """
+日本の参加者がHoloLens 2デバイス、Unityプログラムで表示される日本の陶器を見ているときに収集された音声データから、文字起こしの誤りを修正する有能なアシスタントです。
+
+修正の根拠:
+
+- 音声データ
+- 最初の文字起こし
+- 以下の例
+
+出力:
+
+- 修正された最終的な文字起こしのみを出力してください。エラー、警告、コード、無関係な情報、解説は一切含めないでください。
+
+最終的な文字起こしから除外すべき事項:
+
+- 周囲の音声や雑音
+- 陶器に対するコメント以外の会話
+- 混乱している参加者に対する指示のような文
+- HoloLens 2デバイスやUnityプログラムに関するコメント
+
+注意事項:
+
+- 最初の文字起こしには、複数の話者の声を含むすべての発言が含まれています。
+- 録音で最初に聞こえる声ではないかもしれませんが、最も大きな声のコメントのみを選んでください。
+- 音声データにない新しい文を追加しないでください。
+- 勝手に内容を創作したり、自身のコメントを追加したりしないでください。
+- 上記の制約内で、文の文法が正しいことを確認してください。
+
+---
+
+例 1 （「えっと、人の上半身のようだ、けど、腕は」と「顔が、顔が彫りが深い、彫りが深い顔です。頭は丸くはないです。」は他の参加者のコメント）: 
+
+最初の文字起こし:
+えっと、人の上半身のようだ、けど、腕は現代の傘立てみたいな形をしています。顔が、顔が彫りが深い、彫りが深い顔です。頭は丸くはないです。
+
+最終的な文字起こし:
+現代の傘立てみたいな形をしています。
+
+---
+
+例 2 （「なんだこれ。」と「うん。」は言い淀みです。「軽音？軽音？」は周囲の会話）: 
+
+最初の文字起こし:
+ね、なんだろ、これ。うん、全部一緒これ。えっと、ドラえもんに出てきそうな土偶の形してて、なんか、うん、下半身がない。なんだこれ。後ろに何か文字書いてあって、C7、7、4。31、7、21。なんだこれ。頭はちょっとへこんでる。軽音？軽音？って感じかな？
+
+最終的な文字起こし:
+ドラえもんに出てきそうな土偶の形してて、なんか、下半身がない。後ろに何か文字書いてあって、C7、7、4。31、7、21。頭はちょっとへこんでる。て感じかな？
+
+---
+
+例 3 （正確な文字起こし）: 
+
+最初の文字起こし:
+この土偶はなんかすごい人間のような形をしてて、結構女性っぽい感じの土偶なんですね。なんで女性っぽい土偶で、くびれというか、なんかすごい体が前の方に沿っている感じできれいな形なんですけど、少し不思議な。なぜこのような土偶ができたのか、ちょっと不思議な感じましたね。
+
+最終的な文字起こし:
+この土偶はなんかすごい人間のような形をしてて、結構女性っぽい感じの土偶なんですね。なんで女性っぽい土偶で、くびれというか、なんかすごい体が前の方に沿っている感じできれいな形なんですけど、少し不思議な。なぜこのような土偶ができたのか、ちょっと不思議な感じましたね。
+
+---
+
+例 4 （「ま、前に比べて」が「ま、例年に比べて」と聞き間違えられました。そして、以前の陶器に関する言及のコメントは除外されます。）: 
+
+最初の文字起こし:
+ま、例年に比べて現代的な普通の土器だと思いました。あんまり尖った特徴もなく、普通だなと思ってしまいました。広く均一で。こう、横の出っ張りがいいなと思いました。
+
+最終的な文字起こし:
+現代的な普通の土器だと思いました。あんまり尖った特徴もなく、普通だなと思ってしまいました。広く均一で。こう、横の出っ張りがいいなと思いました。
+
+---
+
+例 5 （「え、しゃべるんですか。」は混乱している参加者）: 
+
+最初の文字起こし:
+え、しゃべるんですか。きのこみたいで面白いです。え、しゃべるんですか？ええ、きのこみたいで面白いです。
+
+最終的な文字起こし:
+きのこみたいで面白いです。
+
+---
+
+例 6 （音声には一度しか登場しないにもかかわらず、その文が二度繰り返されています。）: 
+
+最初の文字起こし:
+えー、立体的で軽くて、でも白いです。中が見えます。
+えー、立体的で、軽くて、でも白いです。中が見えます。
+土偶ですかね。
+
+最終的な文字起こし:
+えー、立体的で軽くて、でも白いです。中が見えます。
+土偶ですかね。
+
+---
+
+例 7 （参加者のコメントは、録音の最後にしかありません。）: 
+
+最初の文字起こし:
+結構な土器がいや対照的な形できれいですね。
+はい、そうです。
+はい。
+ええっと、えっと、えっと、これも。
+結論、結論もなんか。
+いやあ、やって、あ、違う。
+これえーっと、デザインが、えっと、デザインが可愛いですね。
+うん。
+本当ですね。
+間違いが、いや、違う。
+えー、違う、いや、違う。
+ええっと、この土偶を対照的な形で綺麗です、ね？
+（笑い声）
+いや、これも。
+うーん。
+
+最終的な文字起こし:
+ええっと、この土偶を対照的な形で綺麗ですね。
+
+---
+
+例 8 （混乱している参加者。音声には一度しか登場しないにもかかわらず、その文が二度繰り返されています。）: 
+
+最初の文字起こし:
+結合部分が見えなくて面白いなって思いました。デザインが、デザインがすごい。どういう素材でできてるんだろうなと思いました。やばいやばいやばいやばいやばい。何何何？え、感想っすね。あ、そうっす。はい、えっと。え、えっと。はい。結合部分が見えなくて面白いなって思いました。デザインが、え、デザインがすごい。面白いな。どういう素材でできてるんだろうなと思いました。え。え。終わり。
+
+最終的な文字起こし:
+結合部分が見えなくて面白いなって思いました。デザインがすごい。どういう素材でできてるんだろうなと思いました。
+
+---
+
+例 9 （混乱している参加者。音声には一度しか登場しないにもかかわらず、その文が二度繰り返されています。）: 
+
+最初の文字起こし:
+ちょっと土器で背負われそうな感じがします。まあ、結構ボロボロです。それぐらいです。
+これ、回せって言ってんですか？
+なんか
+薄い感じの土器で背負われそうな感じがします。
+なんかあんまり立体的じゃないから、ただの模様みたいな感じで、見えます。
+まあ、結構ボロボロです。
+それぐらいです。
+
+最終的な文字起こし:
+薄い感じの土器で背負われそうな感じがします。
+なんかあんまり立体的じゃないから、ただの模様みたいな感じで、見えます。
+まあ、結構ボロボロです。
+それぐらいです。
+
+---
+
+例 10 （参加者二人の声量がほぼ同じですが、より大きな声のコメントが後から分離して聞こえます。）: 
+
+最初の文字起こし:
+堀も深い。
+顔、鼻が高いです。
+なんかワイングラスみたいな形をしています。
+奇妙さを感じます。
+絵がないので。
+中は意外と広いです。
+
+最終的な文字起こし:
+なんかワイングラスみたいな形をしています。
+中は意外と広いです。
+
+---
+
+例 11 （参加者二人の声量がほぼ同じですが、より大きな声のコメントが後から分離して聞こえます。）: 
+
+最初の文字起こし:
+不思議な形をしてて
+家に置いたら楽しそうですね。
+開けていなかったらわかんないですね。
+上にツワのようなものがある
+水でも入れそうですね。
+なんかでっかい花瓶みたいな形をしていて
+不思議な
+なんか普通って感じです。
+わかんない。
+なんですこれ？
+
+最終的な文字起こし:
+なんかでっかい花瓶みたいな形をしていて
+なんか普通って感じです。
+
+---
+
+これから修正する文字起こしです。
+
+最初の文字起こし:
+"""
+
 model_id = "kotoba-tech/kotoba-whisper-v2.0"
 torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -177,7 +364,7 @@ TRANSCRIBE_VOICE_DATA_KOTOBA = False
 REFINE_TRANSCRIPT = False
 REFINE_TRANSCRIPT_KOTOBA = False
 
-MAKE_FINAL_TRANSCRIPT = True
+MAKE_FINAL_TRANSCRIPT = False
 
 # Load environment variables from .env file
 load_dotenv()
@@ -352,7 +539,8 @@ def transcribe_audio_v2(audio_file: str) -> dict:
         return {"error": str(e)}
 
 
-def refine_transcript_with_gemini_jp_kotoba(audio_file: str, raw_transcript_json: str):
+def refine_transcript_with_gemini_jp_kotoba(audio_file: str,
+                                            raw_transcript_json: str):
     """
     Refines a Japanese transcript using the Gemini API with a specific Japanese prompt.
     This version is updated to work with the JSON format from the kotoba-whisper-v2 pipeline.
@@ -372,7 +560,7 @@ def refine_transcript_with_gemini_jp_kotoba(audio_file: str, raw_transcript_json
         # MODIFICATION 1: Get the full transcript from the 'text' key
         # The previous key was 'highest_confidence_transcript'. The new key is 'text'.
         imperfect_transcript = raw_data.get('text', '')
-        
+
         if not imperfect_transcript:
             return "Error: Could not find 'text' key or transcript is empty in the JSON file."
 
@@ -386,24 +574,21 @@ def refine_transcript_with_gemini_jp_kotoba(audio_file: str, raw_transcript_json
             "特に、この音声は「土器（どき）」や「土偶（どぐう）」に関するコメントです。\n"
             "これらの単語が、例えば「道具（どうぐ） / ドグ / 時 / どき / どぐう / ドキ」のような、音の似た別の単語として誤って書き起こされている可能性が高いです。\n"
             "文脈を注意深く判断し、正確な単語に修正してください。\n"
-            "背景に雑音が含まれる場合がありますが、それは無視して話者の言葉だけを書き起こしてください。\n"
-        )
+            "背景に雑音が含まれる場合がありますが、それは無視して話者の言葉だけを書き起こしてください。\n")
 
         # STEP 1: Upload the audio file. Make sure your client library supports this method.
-        audio_file_part = client.files.upload(file=audio_file, config={"mime_type": "audio/mp3"})
+        audio_file_part = client.files.upload(
+            file=audio_file, config={"mime_type": "audio/mp3"})
 
         # STEP 2: Construct the contents for the API call
         contents = [
-            prompt,
-            f"不完全な書き起こし: {imperfect_transcript}",
-            audio_file_part
+            prompt, f"不完全な書き起こし: {imperfect_transcript}", audio_file_part
         ]
-        
+
         # Use your model client to generate content
         response = client.models.generate_content(model='gemini-2.5-flash',
                                                   contents=contents)
 
-        
         # STEP 3: Clean and return the response text
         return response.text.strip()
 
@@ -427,16 +612,15 @@ def transcribe_audio_kotoba_whisper_v2(audio_file: str):
     print(f"Starting transcription for: {audio_file}")
 
     # Run the inference pipeline
-    result = pipe(
-        audio_file,
-        return_timestamps=True,
-        generate_kwargs=generate_kwargs
-    )
+    result = pipe(audio_file,
+                  return_timestamps=True,
+                  generate_kwargs=generate_kwargs)
 
     return result
 
 
-def make_final_transcript(audio_file_path: str, transcript_to_refine: str, custom_prompt: str) -> str:
+def make_final_transcript(audio_file_path: str, transcript_to_refine: str,
+                          custom_prompt: str) -> str:
     """
     Refines a given transcript string using the Gemini API, an audio file, and a custom prompt.
 
@@ -453,30 +637,27 @@ def make_final_transcript(audio_file_path: str, transcript_to_refine: str, custo
         str: The refined transcript text from the Gemini API, or an error message if something goes wrong.
     """
     try:
-        print(f"Refining transcript for {audio_file_path} with custom prompt...")
+        print(
+            f"Refining transcript for {audio_file_path} with custom prompt...")
 
         # STEP 1: Upload the audio file to the Gemini API.
         # This is necessary for multi-modal prompting.
         audio_file_part = client.files.upload(
-            file=audio_file_path, 
-            config={"mime_type": "audio/mp3"} # Adjust mime_type if using other formats like 'audio/wav'
+            file=audio_file_path,
+            config={
+                "mime_type": "audio/mp3"
+            }  # Adjust mime_type if using other formats like 'audio/wav'
         )
 
         # STEP 2: Construct the contents for the API call.
         # This list combines the custom instructions (prompt), the text to be refined,
         # and the uploaded audio file for context.
-        contents = [
-            custom_prompt,
-            transcript_to_refine,
-            audio_file_part
-        ]
-        
+        contents = [custom_prompt, transcript_to_refine, audio_file_part]
+
         # STEP 3: Call the Gemini model to generate the refined content.
         # a powerful and efficient multi-modal model suitable for this task.
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=contents
-        )
+        response = client.models.generate_content(model='gemini-2.5-flash',
+                                                  contents=contents)
 
         # STEP 4: Return the refined text, stripping any leading/trailing whitespace.
         return response.text.strip()
@@ -584,8 +765,10 @@ def main(root="", output_dir=""):
                     data_paths['voice'] = str(voice_path)
                     data_paths['voice_save'] = str(voice_save_path)
                     data_paths['transcript_save'] = str(transcript_save_path)
-                    data_paths['refined_transcript_save'] = str(refined_transcript_save_path)
-                    data_paths['final_transcript_save'] = str(final_transcript_save_path)
+                    data_paths['refined_transcript_save'] = str(
+                        refined_transcript_save_path)
+                    data_paths['final_transcript_save'] = str(
+                        final_transcript_save_path)
                 else:
                     errors = increment_error('Voice path does not exist',
                                              str(voice_path), errors)
@@ -673,11 +856,17 @@ def main(root="", output_dir=""):
                     errors = increment_error(
                         'Raw transcript not found for refinement',
                         str(data_paths['transcript_save']), errors)
-                    
+
             if MAKE_FINAL_TRANSCRIPT:
                 if Path(data_paths['refined_transcript_save']).exists():
-                    print(f"FINALIZING: {data_paths['refined_transcript_save']}")
-                    finalized_transcript = make_final_transcript(audio_file_path=data_paths['voice_save'], transcript_to_refine=data_paths['refined_transcript_save'], custom_prompt=CUSTOM_ENGLISH_FINAL_PROMPT)
+                    print(
+                        f"FINALIZING: {data_paths['refined_transcript_save']}")
+                    finalized_transcript = make_final_transcript(
+                        audio_file_path=data_paths['voice_save'],
+                        transcript_to_refine=data_paths[
+                            'refined_transcript_save'],
+                        # custom_prompt=CUSTOM_ENGLISH_FINAL_PROMPT
+                        custom_prompt=CUSTOM_JAPANESE_FINAL_PROMPT)
                     with open(data_paths['final_transcript_save'],
                               "w",
                               encoding='utf-8') as f:
@@ -689,12 +878,12 @@ def main(root="", output_dir=""):
 
 
 if __name__ == "__main__":
-    # main(
-    #     root=r"D:\storage\jomon_kaen\data",
-    #     output_dir=r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan",
-    # )
-
     main(
-        root="./src/data_my",
-        output_dir="./src/jomon_kaen_dataset/malaysia",
+        root="./src/data",
+        output_dir="./src/jomon_kaen_dataset/japan",
     )
+
+    # main(
+    #     root="./src/data_my",
+    #     output_dir="./src/jomon_kaen_dataset/malaysia",
+    # )

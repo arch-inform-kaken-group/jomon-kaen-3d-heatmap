@@ -16,6 +16,7 @@ Notes
 
 import os
 from pathlib import Path
+import shutil
 import sys
 import threading
 import queue
@@ -28,7 +29,7 @@ import matplotlib
 import japanize_matplotlib
 
 from dataset.processing.affective_state import process_questionnaire_answers_fast, process_questionnaire_answers_markers
-from dataset.processing.aggregation import generate_gaze_pointcloud_heatmap, generate_voxel_from_mesh
+from dataset.processing.aggregation import generate_gaze_pointcloud_heatmap, generate_voxel_from_mesh, generate_voxel_from_mesh_rgb
 from dataset.processing.fixation import generate_gaze_visualizations_from_files, generate_fixation_pointcloud_heatmap  #
 from dataset.processing.pottery import voxelize_pottery_dogu  #
 from dataset.processing.report import generate_filtered_dataset_report  #
@@ -39,6 +40,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from tqdm import tqdm  #
+
+from PIL import Image as PILImage  #
 
 # https://arxiv.org/abs/2111.07209 [An Assessment of the Eye Tracking Signal Quality Captured in the HoloLens 2]
 # Official: 1.5 | Paper original: 6.45 | Paper recalibrated: 2.66
@@ -227,10 +230,12 @@ combined_mesh_filename = "combined_qa_mesh"
 pottery_dirname = "voxel_pottery"
 fixation_pointcloud_filename = "fixation_pointcloud"
 fixation_heatmap_filename = "fixation_heatmap"
+final_transcript_filename = "final_transcript"
 
 MESH_PC_VOXEL_EXTENSION = ".ply"
 VOICE_EXTENSION = ".mp3"
 SANITY_CHECK_EXTENSION = ".png"
+TRANSCRIPT_EXTENSION = ".txt"
 
 ### UTILS ###
 
@@ -395,6 +400,7 @@ def filter_data_on_condition(
     # Save error
     # Tracking sheet, data mismatch
     # Missing pottery / dogu regardless of file extension
+    # No point cloud eye gaze data
     #
     # FORMAT:
     # "ERROR": {
@@ -453,7 +459,7 @@ def filter_data_on_condition(
             pottery_keys = os.listdir(session_path)
             unique_pottery_keys.update(pottery_keys)
             for p in pottery_keys:
-                if (p == 'language.txt'):
+                if (p == 'language.txt' or p == 'gender.txt'):
                     continue
 
                 hm_error = False
@@ -466,7 +472,9 @@ def filter_data_on_condition(
                 pointcloud_path = pottery_path / Path("pointcloud.csv")
                 qa_path = pottery_path / Path("qa_corrected.csv")
                 model_path = pottery_path / Path("model.obj")
-                voice_path = pottery_path / Path("session_audio_0.wav")
+                # voice_path = pottery_path / Path("session_audio_0.wav")
+                voice_path = pottery_path / Path("session_audio_45s.mp3")
+                transcript_path = pottery_path / Path("final_transcript.txt")
 
                 output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}{SANITY_CHECK_EXTENSION}"
                 output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
@@ -479,20 +487,26 @@ def filter_data_on_condition(
                 output_fixation_point_cloud = processed_pottery_path / f"{fixation_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_fixation_heatmap = processed_pottery_path / f"{fixation_heatmap_filename}{MESH_PC_VOXEL_EXTENSION}"
                 output_original_point_cloud = processed_pottery_path / f"{original_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
+                output_final_transcript = processed_pottery_path / f"{final_transcript_filename}{TRANSCRIPT_EXTENSION}"
 
                 # Check if paths exist and increment error
                 if Path(model_path).exists():
                     data_paths['model'] = str(model_path)
                     if Path(pointcloud_path).exists():
-                        data_paths['pointcloud'] = str(pointcloud_path)
-                        data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
-                        data_paths[sanity_plot_filename] = str(output_sanity_plot)
-                        data_paths[eg_pointcloud_filename] = str(output_point_cloud)
-                        data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
-                        data_paths[voxel_filename] = str(output_voxel)
-                        data_paths[fixation_pointcloud_filename] = str(output_fixation_point_cloud)
-                        data_paths[fixation_heatmap_filename] = str(output_fixation_heatmap)
-                        data_paths[original_pointcloud_filename] = str(output_original_point_cloud)
+                        pc = pd.read_csv(Path(pointcloud_path), header=0).to_numpy()
+                        if (pc.shape[0] > 0):
+                            data_paths['pointcloud'] = str(pointcloud_path)
+                            data_paths['POINTCLOUD_SIZE_KB'] = os.path.getsize(pointcloud_path)/1024
+                            data_paths[sanity_plot_filename] = str(output_sanity_plot)
+                            data_paths[eg_pointcloud_filename] = str(output_point_cloud)
+                            data_paths[eg_heatmap_rgb_filename] = str(output_heatmap_rgb)
+                            data_paths[voxel_filename] = str(output_voxel)
+                            data_paths[fixation_pointcloud_filename] = str(output_fixation_point_cloud)
+                            data_paths[fixation_heatmap_filename] = str(output_fixation_heatmap)
+                            data_paths[original_pointcloud_filename] = str(output_original_point_cloud)
+                        else:
+                            hm_error = True
+                            errors = increment_error('No point cloud eye gaze data', str(pointcloud_path), errors)
                     else:
                         hm_error = True
                         errors = increment_error('Point cloud path does not exist', str(pointcloud_path), errors)
@@ -518,6 +532,13 @@ def filter_data_on_condition(
                 else:
                     voice_error = True
                     errors = increment_error('Voice path does not exist', str(voice_path), errors)
+
+                if Path(transcript_path).exists():
+                    data_paths[final_transcript_filename] = str(transcript_path)
+                    data_paths['TRANSCRIPT'] = str(output_final_transcript)
+                else:
+                    voice_error = True
+                    errors = increment_error('Transcript path does not exist', str(voice_path), errors)
 
                 pottery_dogu_path = pottery_id_to_path[p]
                 if (hm_error):
@@ -708,22 +729,35 @@ def filter_data_on_condition(
 
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
-                        segmented_mesh = qa_segmented_mesh[k]
+                        segmented_mesh = qa_segmented_mesh[k][0]
+                        voxelized_mesh = generate_voxel_from_mesh_rgb(
+                            mesh=segmented_mesh,
+                            vertex_colors=qa_segmented_mesh[k][1],
+                            target_voxel_resolution=target_voxel_resolution,
+                            base_pottery_pcd=data_paths['processed_pottery_path'],
+                        )
+
                         individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
+                        individual_segment_voxelized = data_paths[segmented_meshes_dirname] / Path(f"{k}_voxel.ply")
+
                         active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
+                        active_threads.append(save_geometry_threaded(individual_segment_voxelized, voxelized_mesh, error_queue))
 
             if generate_voice and (mode==0 or mode==2):
                 # Voice
                 if use_cache and Path(data_paths[processed_voice_filename]).exists():
                     pass
                 else:
-                    audio_segment = process_voice_data(data_paths['voice'])
+                    # audio_segment = process_voice_data(data_paths['voice'])
 
-                    audio_segment.export(
-                        data_paths[processed_voice_filename],
-                        format="mp3",
-                        bitrate="192k"
-                    )
+                    # audio_segment.export(
+                    #     data_paths[processed_voice_filename],
+                    #     format="mp3",
+                    #     bitrate="16k"
+                    # )
+
+                    shutil.copy(data_paths['voice'], data_paths[processed_voice_filename])
+                    shutil.copy(data_paths[final_transcript_filename], data_paths['TRANSCRIPT'])
 
     # In-time processing, only return path to raw data
     else:
@@ -743,7 +777,7 @@ def filter_data_on_condition(
         pass
 
     if (generate_report):
-        generate_filtered_dataset_report(
+        analysis_plots = generate_filtered_dataset_report(
             errors=errors,
             mode=mode,
             hololens_2_spatial_error=hololens_2_spatial_error,
@@ -766,6 +800,14 @@ def filter_data_on_condition(
             n_valid_data=n_valid_data,
             filtered_data=data,
         )
+
+        for i, plot in enumerate(analysis_plots):
+            # 1. Get the original image buffer
+            original_buffer = plot['buffer']
+
+            # 2. Open the image with Pillow
+            pil_image = PILImage.open(original_buffer)
+            pil_image.save(f"./report_plot_{i}.png")
 
     return data, errors
 # yapf: enable

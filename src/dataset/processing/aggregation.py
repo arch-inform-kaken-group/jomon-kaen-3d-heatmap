@@ -403,3 +403,225 @@ def generate_voxel_from_mesh(
 
         return voxel_pcd
 # yapf: enable
+
+# yapf: disable
+def generate_voxel_from_mesh_rgb(
+    mesh,
+    vertex_colors,  # Changed from vertex_intensities
+    target_voxel_resolution,
+    base_pottery_pcd=None,
+):
+    """
+    Generates a voxel heatmap from a mesh using direct vertex RGB colors.
+
+    The color of a point/voxel is determined by the color of the NEAREST vertex
+    on the mesh surface, identified using barycentric coordinates. It does not
+    interpolate (spread) the color.
+
+    Two modes of operation:
+    1. If base_pottery_pcd is None (default):
+        Generates a new voxel grid by sampling points within the mesh's triangles.
+        The output may not align with other external voxel grids.
+
+    2. If base_pottery_pcd is provided:
+        Uses the exact points from the provided point cloud as the basis. It finds
+        the closest point on the mesh surface for each point cloud point and assigns
+        the color of the dominant vertex (closest by barycentric coordinate) to it.
+        This guarantees the output heatmap is perfectly aligned with the base pottery.
+    """
+    if mesh is None or vertex_colors is None:
+        raise ValueError("Skipping voxel heatmap: Missing mesh or color data.")
+
+    if not mesh.has_triangles() or not mesh.has_vertices():
+        raise ValueError("Skipping voxel heatmap: Mesh has no triangles or vertices.")
+
+    # Ensure vertex_colors is a numpy array for indexing
+    vertex_colors = np.asarray(vertex_colors)
+    if vertex_colors.ndim != 2 or vertex_colors.shape[1] != 3:
+        raise ValueError(f"vertex_colors must be an Nx3 array, but got shape {vertex_colors.shape}")
+
+
+    if base_pottery_pcd is not None:
+
+        if isinstance(base_pottery_pcd, str):
+             base_pottery_pcd = o3d.io.read_point_cloud(base_pottery_pcd)
+
+        num_pottery_points = len(base_pottery_pcd.points)
+        if num_pottery_points == 0:
+            print("WARNING: Input pottery point cloud is empty.")
+            return o3d.geometry.PointCloud()
+
+        if not mesh.has_vertex_normals():
+            mesh.compute_vertex_normals()
+
+        scene = o3d.t.geometry.RaycastingScene()
+        mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        _ = scene.add_triangles(mesh_t)
+
+        query_points = o3d.core.Tensor(np.asarray(base_pottery_pcd.points), dtype=o3d.core.Dtype.Float32)
+        closest_points_ans = scene.compute_closest_points(query_points)
+
+        # 1. Get the essential data that IS available from the result.
+        triangle_ids = closest_points_ans['primitive_ids'].numpy()
+        closest_surface_points = closest_points_ans['points'].numpy()
+
+        # Handle potential empty results if no triangles were hit (though compute_closest_points should always return)
+        if len(triangle_ids) == 0:
+             print("WARNING: Raycasting returned no valid triangle hits.")
+             return o3d.geometry.PointCloud()
+
+        # 2. Get the three vertices (a, b, c) for each identified triangle.
+        mesh_vertices = np.asarray(mesh.vertices)
+        mesh_triangles = np.asarray(mesh.triangles)
+        hit_tri_vertices = mesh_vertices[mesh_triangles[triangle_ids]]
+        a, b, c = hit_tri_vertices[:, 0], hit_tri_vertices[:, 1], hit_tri_vertices[:, 2]
+
+        # 3. Calculate barycentric coordinates (u, v, w) using the point and triangle vertices.
+        v0, v1 = b - a, c - a
+        v2 = closest_surface_points - a
+
+        d00 = np.einsum('ij,ij->i', v0, v0)
+        d01 = np.einsum('ij,ij->i', v0, v1)
+        d11 = np.einsum('ij,ij->i', v1, v1)
+        d20 = np.einsum('ij,ij->i', v2, v0)
+        d21 = np.einsum('ij,ij->i', v2, v1)
+
+        denom = d00 * d11 - d01 * d01
+        denom[np.abs(denom) < 1e-9] = 1e-9 # Prevent division by zero
+
+        v = (d11 * d20 - d01 * d21) / denom
+        w = (d00 * d21 - d01 * d20) / denom
+        u = 1.0 - v - w
+
+        bary_coords = np.vstack([u, v, w]).T # Shape: (N_points, 3)
+
+        # 4. Get the RGB colors for the 3 vertices of each hit triangle.
+        # vertex_colors shape is (N_verts, 3)
+        # mesh_triangles[triangle_ids] shape is (N_hit_points, 3 [v_idx_a, v_idx_b, v_idx_c])
+        # tri_vertex_colors shape is (N_hit_points, 3 [verts_abc], 3 [rgb])
+        tri_vertex_colors = vertex_colors[mesh_triangles[triangle_ids]]
+
+        # 5. Find which vertex is dominant based on the largest barycentric coordinate.
+        # bary_coords shape is (N_hit_points, 3 [u, v, w]) corresponding to vertices a, b, c
+        # dominant_vertex_indices is (N_hit_points,) with values 0, 1, or 2.
+        dominant_vertex_indices = np.argmax(bary_coords, axis=1)
+
+        # 6. Select the color of the dominant vertex for each point.
+        num_points = len(dominant_vertex_indices)
+        # Use advanced indexing to pick one color per row:
+        # For row i, pick the color from tri_vertex_colors[i, dominant_vertex_indices[i], :]
+        colors = tri_vertex_colors[np.arange(num_points), dominant_vertex_indices]
+
+        # 7. Create the final heatmap with guaranteed 1-to-1 correspondence.
+        # The color is now directly assigned, no colormap or normalization needed.
+        heatmap_pcd = o3d.geometry.PointCloud()
+        heatmap_pcd.points = base_pottery_pcd.points
+        heatmap_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        return heatmap_pcd
+
+    else:
+        # Import pandas only if needed for this branch
+        import pandas as pd
+
+        # Initial Setup (Vectorized)
+        mesh_vertices_np = np.asarray(mesh.vertices)
+        mesh_triangles_np = np.asarray(mesh.triangles)
+        min_bound = mesh.get_min_bound()
+        max_bound = mesh.get_max_bound()
+        max_range = np.max(max_bound - min_bound)
+        voxel_size = max_range / (target_voxel_resolution - 1)
+        voxel_size_sq = voxel_size**2
+
+        # Calculate Adaptive Sample Counts for ALL Triangles at Once
+        tri_vertices = mesh_vertices_np[mesh_triangles_np] # Shape (N_tri, 3, 3)
+        # Get vertex colors for each triangle's vertices
+        tri_vertex_colors = vertex_colors[mesh_triangles_np] # Shape (N_tri, 3, 3)
+
+        v0, v1, v2 = tri_vertices[:, 0], tri_vertices[:, 1], tri_vertices[:, 2]
+        edge1, edge2 = v1 - v0, v2 - v0
+        triangle_areas = 0.5 * np.linalg.norm(np.cross(edge1, edge2), axis=1)
+
+        num_samples_per_triangle = np.ceil(triangle_areas / voxel_size_sq).astype(int) + 10
+        total_samples = np.sum(num_samples_per_triangle)
+        
+        if total_samples <= 0:
+             print("WARNING: Mesh resulted in 0 samples for voxelization.")
+             return o3d.geometry.PointCloud()
+
+        # Generate and Interpolate ALL Sample Points at Once
+        triangle_indices = np.repeat(np.arange(len(mesh_triangles_np)), num_samples_per_triangle)
+
+        # Generate random barycentric coordinates (u, v, w)
+        rand_points = np.random.rand(total_samples, 2)
+        rand_points_sum = np.sum(rand_points, axis=1)
+        rand_points[rand_points_sum > 1] = 1 - rand_points[rand_points_sum > 1]
+
+        bary_coords = np.zeros((total_samples, 3))
+        bary_coords[:, 0] = 1 - rand_points[:, 0] - rand_points[:, 1] # u
+        bary_coords[:, 1] = rand_points[:, 0]  # v
+        bary_coords[:, 2] = rand_points[:, 1]  # w
+
+        # Interpolate positions (needed for voxel assignment)
+        all_sample_points = np.einsum('ij,ijk->ik', bary_coords, tri_vertices[triangle_indices])
+
+        # === START MODIFICATION ===
+        # Instead of interpolating intensity, find the DOMINANT vertex color
+        
+        # 1. Get the (3, 3) RGB array for each sample's parent triangle
+        # Shape: (total_samples, 3 [verts], 3 [rgb])
+        all_sample_tri_vertex_colors = tri_vertex_colors[triangle_indices]
+
+        # 2. Find the index (0, 1, or 2) of the dominant vertex for EACH sample
+        # Shape: (total_samples,)
+        dominant_vertex_indices = np.argmax(bary_coords, axis=1)
+
+        # 3. Use advanced indexing to select the final color for EACH sample
+        # Shape: (total_samples, 3 [rgb])
+        all_sample_colors = all_sample_tri_vertex_colors[np.arange(total_samples), dominant_vertex_indices]
+        # === END MODIFICATION ===
+
+
+        # Voxel Assignment using Pandas
+        voxel_coords_all = np.floor((all_sample_points - min_bound) / voxel_size).astype(int)
+
+        # === START MODIFICATION ===
+        # Aggregate by selecting the color with the highest LUMINANCE within the voxel
+        # This mimics the old 'max(intensity)' logic, ensuring that bright "heatmap"
+        # colors take precedence over dark "base_color" samples within the same voxel.
+
+        # Create a DataFrame to hold voxel coordinates and their associated dominant color
+        df = pd.DataFrame(voxel_coords_all, columns=['x', 'y', 'z'])
+        df[['r', 'g', 'b']] = all_sample_colors
+
+        # Calculate luminance (Y') for each sample's color
+        # Using BT.709 standard: Y' = 0.2126*R + 0.7152*G + 0.0722*B
+        # Using simple (less accurate but functional) NTSC weights:
+        luminance = 0.299 * all_sample_colors[:, 0] + 0.587 * all_sample_colors[:, 1] + 0.114 * all_sample_colors[:, 2]
+        df['luminance'] = luminance
+
+        # Find the row index (from the original df) corresponding to the max luminance for each voxel group
+        # This is the key step: finds the *single sample* that "wins" the voxel
+        idx_max_luminance = df.groupby(['x', 'y', 'z'])['luminance'].idxmax()
+
+        # Select only those winning rows to get our final voxel data
+        final_voxel_data = df.loc[idx_max_luminance]
+
+        # Extract the coordinates and the corresponding colors
+        final_coords_np = final_voxel_data[['x', 'y', 'z']].to_numpy()
+        colors = final_voxel_data[['r', 'g', 'b']].to_numpy()
+        # === END MODIFICATION ===
+
+        # Calculate world coordinates of voxel centers
+        voxel_points = min_bound + (final_coords_np + 0.5) * voxel_size
+
+        # --- REMOVED Normalization and Colormap block ---
+        # Colors are already final RGB values determined by the aggregation logic.
+
+        # Create Final Point Cloud
+        voxel_pcd = o3d.geometry.PointCloud()
+        voxel_pcd.points = o3d.utility.Vector3dVector(voxel_points)
+        voxel_pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        return voxel_pcd
+# yapf: enable

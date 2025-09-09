@@ -6,8 +6,8 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root="./src/data/japan",
-        # root="c:/Users/luhou/Downloads/raw_my",
+        root="./src/jomon_kaen_dataset/japan",
+        # root="./src/data_my",
         pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
@@ -27,16 +27,18 @@ def main():
         # session_ids=["2025_07_10_11_03_23", "2025_07_10_08_46_51", "2025_06_25_19_31_00", "2025_07_10_11_11_25"],
         # min_emotion_count=1,
         # max_emotion_count=1,
-        qna_marker=True,
+        # qna_marker=True,
         # pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=1,
+        limit=1000,
+        # session_ids=["2025_06_25_17_12_43"],
         ####################################################################
         # groups=['GX'],
-        # generate_pc_hm_voxel=False,
+        generate_pc_hm_voxel=False,
         # generate_qna=False,
         # generate_voice=True,
-        generate_pottery_dogu_voxel=False,
+        # generate_pottery_dogu_voxel=False,
         # generate_sanity_check=True,
         # generate_fixation=True,
     )

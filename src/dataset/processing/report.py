@@ -121,7 +121,7 @@ def _generate_analysis_plots(
         ax.set_ylabel('Average Size (KB)', fontsize=10)
         ax.set_xlabel('Pottery ID', fontsize=10)
         ax.legend(['PointCloud', 'Q&A'])
-        plt.xticks(rotation=90, fontsize=8)
+        plt.xticks(rotation=-90, fontsize=8)
         plt.tight_layout()
 
         buf = io.BytesIO()
@@ -427,3 +427,5 @@ def generate_filtered_dataset_report(
         print(f"\nSuccessfully generated report at: {report_path}")
     except Exception as e:
         print(f"\nFailed to generate PDF report: {e}", file=sys.stderr)
+
+    return analysis_plots
