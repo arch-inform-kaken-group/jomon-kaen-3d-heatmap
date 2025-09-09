@@ -6,10 +6,10 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
-        pottery_path=r"D:\storage\jomon_kaen\pottery",
-        # root="./src/jomon_kaen_dataset/japan",
-        # pottery_path="./src/pottery",
+        # root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
+        # pottery_path=r"D:\storage\jomon_kaen\pottery",
+        root="./src/jomon_kaen_dataset/japan",
+        pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
         preprocess=True,
@@ -31,20 +31,20 @@ def main():
         # qna_marker=True,
         # pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=3,
+        mode=1,
         limit=1000,
         # session_ids=["2025_06_25_17_12_43"],
         ####################################################################
         # groups=['GX'],
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
-        # generate_voice=False,
+        generate_voice=False,
         # generate_pottery_dogu_voxel=False,
         # generate_sanity_check=True,
         # generate_fixation=True,
-        # generate_pointcloud=False,
-        # generate_mesh=False,
-        generate_voxel=False,
+        generate_pointcloud=False,
+        generate_mesh=False,
+        # generate_voxel=False,
         # generate_transcript=False,
     )
 

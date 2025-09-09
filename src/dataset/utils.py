@@ -381,6 +381,10 @@ def filter_data_on_condition(
         generate_fixation (bool): Generate gaze fixation point cloud and heatmap, with a duration aggregated point cloud, heatmap and legend. Default: False
         voxel_color (str): 'gray' or 'rgb'. NOT YET IMPLEMENTED. Default: 'gray'
         qna_marker (bool): Generate QNA point cloud as shaped markers. Default: False
+        generate_voxel (bool): Generate voxel data. Default: True,
+        generate_mesh (bool): Generate mesh data. Default: True,
+        generate_pointcloud (bool): Generate point cloud data. Default: True,
+        generate_transcript (bool): Generate transcript data. Default: True,
     
     Returns:
         data (list[dict]): A list of dictionaries containing the path to processed data and raw data
@@ -667,7 +671,7 @@ def filter_data_on_condition(
                     if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[eg_pointcloud_filename], eye_gaze_pointcloud, error_queue))
                     if generate_mesh: active_threads.append(save_geometry_threaded(data_paths[eg_heatmap_rgb_filename], eye_gaze_heatmap_rgb_mesh, error_queue))
 
-                    eye_gaze_voxel = generate_voxel_from_mesh(
+                    if generate_voxel: eye_gaze_voxel = generate_voxel_from_mesh(
                         mesh=mesh_greyscale,
                         vertex_intensities=final_vertex_intensities,
                         target_voxel_resolution=target_voxel_resolution,
@@ -734,7 +738,7 @@ def filter_data_on_condition(
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
                         segmented_mesh = qa_segmented_mesh[k][0]
-                        voxelized_mesh = generate_voxel_from_mesh_rgb(
+                        if generate_voxel: voxelized_mesh = generate_voxel_from_mesh_rgb(
                             mesh=segmented_mesh,
                             vertex_colors=qa_segmented_mesh[k][1],
                             target_voxel_resolution=target_voxel_resolution,

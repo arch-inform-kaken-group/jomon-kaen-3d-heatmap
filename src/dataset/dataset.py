@@ -61,12 +61,16 @@ def get_jomon_kaen_dataset(
     generate_report: bool = True,
     generate_pc_hm_voxel: bool = True,
     generate_qna: bool = True,
-    generate_voice: bool = False,
+    generate_voice: bool = True,
     generate_pottery_dogu_voxel: bool = True,
     generate_sanity_check: bool = False,
     generate_fixation: bool = False,
-    voxel_color: str = 'gray', # 'gray' | 'rgb'
+    voxel_color: str = 'gray',  # 'gray' | 'rgb'
     qna_marker: bool = False,
+    generate_voxel: bool = True,
+    generate_mesh: bool = True,
+    generate_pointcloud: bool = True,
+    generate_transcript: bool = True,
 ):
     """
     Checks all paths from the root directory -> group -> session -> pottery/dogu -> raw data.
@@ -101,12 +105,16 @@ def get_jomon_kaen_dataset(
         generate_report (bool): Generate a data report. Default: True
         generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
         generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
-        generate_voice (bool): Generate voice. Default: False
+        generate_voice (bool): Generate voice. Default: True
         generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
         generate_sanity_check (bool): Generate sanity check png. Default: False
         generate_fixation (bool): Generate gaze fixation point cloud and heatmap, with a duration aggregated point cloud, heatmap and legend. Default: False
         voxel_color (str): 'gray' or 'rgb'. NOT YET IMPLEMENTED. Default: 'gray'
         qna_marker (bool): Generate QNA point cloud as shaped markers. Default: False
+        generate_voxel (bool): Generate voxel data. Default: True,
+        generate_mesh (bool): Generate mesh data. Default: True,
+        generate_pointcloud (bool): Generate point cloud data. Default: True,
+        generate_transcript (bool): Generate transcript data. Default: True,
 
     Returns:
         dataset
@@ -145,6 +153,10 @@ def get_jomon_kaen_dataset(
             generate_fixation=generate_fixation,
             voxel_color=voxel_color,
             qna_marker=qna_marker,
+            generate_voxel=generate_voxel,
+            generate_mesh=generate_mesh,
+            generate_pointcloud=generate_pointcloud,
+            generate_transcript=generate_transcript,
         )
 
         random_indicies = np.random.choice(len(data), len(data), replace=False)
@@ -236,7 +248,7 @@ class PreprocessJomonKaenDataset(Dataset):
         self.data = data
         self.mode = mode
         self.target_voxel_resolution = target_voxel_resolution
-        self.num_points=num_points
+        self.num_points = num_points
 
     def __len__(self):
         return len(self.data)
@@ -329,7 +341,7 @@ class PreprocessJomonKaenDataset(Dataset):
             data_paths = self.data[index]
             # Assuming 'voxel_filename' is a variable holding the key for the heatmap file
             # and that self.data is a list of dictionaries.
-            voxel_file = str(data_paths[voxel_filename]) 
+            voxel_file = str(data_paths[voxel_filename])
             pottery_file = str(data_paths['processed_pottery_path'])
 
             pottery_pcd = o3d.io.read_point_cloud(pottery_file)
@@ -338,18 +350,25 @@ class PreprocessJomonKaenDataset(Dataset):
             # Process Pottery Point Cloud
             pottery_points = np.asarray(pottery_pcd.points, dtype=np.float32)
             if pottery_pcd.has_colors():
-                pottery_colors = np.asarray(pottery_pcd.colors, dtype=np.float32)
+                pottery_colors = np.asarray(pottery_pcd.colors,
+                                            dtype=np.float32)
             else:
                 # If no colors exist, use a neutral gray (0.5)
-                pottery_colors = np.full_like(pottery_points, 0.5, dtype=np.float32)
+                pottery_colors = np.full_like(pottery_points,
+                                              0.5,
+                                              dtype=np.float32)
 
             # Process Voxel/Heatmap Point Cloud (for Target Intensities)
             if voxel_pcd.has_colors():
                 # Convert heatmap RGB colors to a single intensity value (average)
-                voxel_intensities = np.mean(np.asarray(voxel_pcd.colors, dtype=np.float32), axis=1, keepdims=True)
+                voxel_intensities = np.mean(np.asarray(voxel_pcd.colors,
+                                                       dtype=np.float32),
+                                            axis=1,
+                                            keepdims=True)
             else:
                 # If the heatmap has no colors, default to zero intensity
-                voxel_intensities = np.zeros((len(pottery_points), 1), dtype=np.float32)
+                voxel_intensities = np.zeros((len(pottery_points), 1),
+                                             dtype=np.float32)
 
             # Sample a Fixed Number of Points
             # Since both clouds share the same structure, we can sample indices once.
@@ -358,16 +377,20 @@ class PreprocessJomonKaenDataset(Dataset):
             # Handle cases where one of the point clouds might be empty
             if num_available_points == 0 or len(voxel_intensities) == 0:
                 # Return zero tensors to prevent errors.
-                pottery_xyz_rgb = torch.zeros((self.num_points, 6), dtype=torch.float32)
-                target_intensities = torch.zeros((self.num_points, 1), dtype=torch.float32)
+                pottery_xyz_rgb = torch.zeros((self.num_points, 6),
+                                              dtype=torch.float32)
+                target_intensities = torch.zeros((self.num_points, 1),
+                                                 dtype=torch.float32)
                 return pottery_xyz_rgb, target_intensities
-                
+
             # To be safe, ensure both arrays have the same length before sampling
             min_points = min(num_available_points, len(voxel_intensities))
 
             # Choose indices to sample. Use replacement if not enough points are available.
             replace = min_points < self.num_points
-            sample_indices = np.random.choice(min_points, self.num_points, replace=replace)
+            sample_indices = np.random.choice(min_points,
+                                              self.num_points,
+                                              replace=replace)
 
             # Use the same indices to sample from both the pottery and heatmap data
             sampled_pottery_points = pottery_points[sample_indices]
@@ -376,14 +399,14 @@ class PreprocessJomonKaenDataset(Dataset):
 
             # Combine and Convert to Tensors
             # Input tensor: concatenate XYZ and RGB features
-            pottery_xyz_rgb = np.hstack((sampled_pottery_points, sampled_pottery_colors))
+            pottery_xyz_rgb = np.hstack(
+                (sampled_pottery_points, sampled_pottery_colors))
 
             # Convert final numpy arrays to PyTorch tensors
             pottery_tensor = torch.from_numpy(pottery_xyz_rgb)
             target_tensor = torch.from_numpy(target_intensities)
 
             return pottery_tensor, target_tensor
-
 
     # # Sanity check __getitem__
     # def __getitem__(self, index):
@@ -457,6 +480,7 @@ def main():
 
     pass
 
+
 def grid_to_pointcloud(voxel_grid):
     """
     Converts a NumPy voxel grid into an Open3D PointCloud.
@@ -480,7 +504,7 @@ def grid_to_pointcloud(voxel_grid):
 
     # Create the PointCloud object.
     pcd = o3d.geometry.PointCloud()
-    
+
     # Use the grid indices as the 3D points for a direct visualization.
     pcd.points = o3d.utility.Vector3dVector(indices.astype(np.float32))
 
@@ -494,6 +518,7 @@ def grid_to_pointcloud(voxel_grid):
         pcd.colors = o3d.utility.Vector3dVector(data)
 
     return pcd
+
 
 if "__main__" == __name__:
     main()

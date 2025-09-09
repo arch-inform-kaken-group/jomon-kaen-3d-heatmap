@@ -85,6 +85,9 @@ train_dataset, test_dataset = get_jomon_kaen_dataset(
         use_cache=True,
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=3,
+        generate_pointcloud=False,
+        generate_mesh=False,
+        generate_transcript=False,
     )
 ```
 
@@ -99,6 +102,9 @@ train_dataset, test_dataset = get_jomon_kaen_dataset(
         use_cache=True,
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=3,
+        generate_pointcloud=False,
+        generate_mesh=False,
+        generate_transcript=False,
     )
 ```
 
@@ -129,10 +135,14 @@ tracking_sheet_path (str): Path to the tracking sheet. Default: ""
 generate_report (bool): Generate a data report. Default: True
 generate_pc_hm_voxel (bool): Generate pointcloud, heatmap & voxel. Default: True
 generate_qna (bool): Generate QNA combined meah, segmented mesh, pointcloud. Default: True
-generate_voice (bool): Generate voice. Default: False
+generate_voice (bool): Generate voice. Default: True
 generate_pottery_dogu_voxel (bool): Generate the input pottery and dogu voxel. Default: True
 generate_sanity_check (bool): Generate sanity check png. Default: False
 generate_fixation (bool): Generate gaze fixation point cloud and heatmap, with a duration aggregated point cloud, heatmap and legend. Default: False
 voxel_color (str): 'gray' or 'rgb'. NOT YET IMPLEMENTED. Default: 'gray'
 qna_marker (bool): Generate QNA point cloud as shaped markers. Default: False
+generate_voxel (bool): Generate voxel data. Default: True,
+generate_mesh (bool): Generate mesh data. Default: True,
+generate_pointcloud (bool): Generate point cloud data. Default: True,
+generate_transcript (bool): Generate transcript data. Default: True,
 ```
