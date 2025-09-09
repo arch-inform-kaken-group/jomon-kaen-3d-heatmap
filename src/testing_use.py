@@ -6,9 +6,10 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root="./src/jomon_kaen_dataset/japan",
-        # root="./src/data_my",
-        pottery_path="./src/pottery",
+        root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
+        # root="./src/jomon_kaen_dataset/japan",
+        # pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
         preprocess=True,
@@ -30,7 +31,7 @@ def main():
         # qna_marker=True,
         # pottery_ids=["MH0037", "SK0001", "TK0020", "UD0308"],
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=1,
+        mode=3,
         limit=1000,
         # session_ids=["2025_06_25_17_12_43"],
         ####################################################################
