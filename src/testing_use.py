@@ -6,9 +6,10 @@ def main():
     st = time.time_ns()
 
     data, errors = filter_data_on_condition(
-        root="./src/jomon_kaen_dataset/japan",
-        # root="./src/data_my",
-        pottery_path="./src/pottery",
+        root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan",
+        pottery_path=r"D:\storage\jomon_kaen\pottery",
+        # root="./src/jomon_kaen_dataset/japan",
+        # pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
         preprocess=True,
