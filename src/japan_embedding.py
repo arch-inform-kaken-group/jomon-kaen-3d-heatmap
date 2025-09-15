@@ -1,6 +1,9 @@
 import os
+import sys
+import io
 from collections import defaultdict
 from pathlib import Path
+from datetime import datetime
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -8,8 +11,10 @@ from mpl_toolkits.mplot3d import Axes3D
 import japanize_matplotlib
 
 import numpy as np
+import torch
 from tqdm import tqdm
 import pandas as pd
+from scipy.special import softmax
 
 import neologdn
 from sudachipy import tokenizer
@@ -19,12 +24,30 @@ from sentence_transformers import SentenceTransformer
 import umap
 from sklearn.metrics.pairwise import cosine_similarity
 
-from dotenv import load_dotenv
+# --- PDF Report Imports ---
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
-load_dotenv()
-
+# --- Environment/Path Setup ---
 FONT_PATH = "C:/Windows/Fonts/msgothic.ttc"
+# Register the font for matplotlib and reportlab
+plt.rcParams['font.family'] = 'MS Gothic'
+try:
+    pdfmetrics.registerFont(TTFont('JapaneseFont', FONT_PATH))
+    JAPANESE_FONT = 'JapaneseFont'
+    print(f"Successfully registered font '{FONT_PATH}' for PDF generation.")
+except Exception as e:
+    print(f"Warning: Could not register font '{FONT_PATH}'. PDF may not render Japanese characters correctly. Error: {e}")
+    JAPANESE_FONT = 'Helvetica'
 
+
+# --- Global Constants ---
 ASSIGNED_NUMBERS_DICT = {
     'AS0001': '1', 'FH0008': '2', 'IN0003': '3', 'IN0008': '4', 'IN0009': '5', 'IN0017': '6',
     'IN0081': '7', 'IN0104': '8', 'IN0135': '9', 'IN0148': '10', 'IN0220': '11', 'IN0228': '12',
@@ -44,14 +67,15 @@ ASSIGNED_NUMBERS_DICT = {
     'SK0035': '91', 'TK0020': '92', 'UD0028': '93'
 }
 
-LABELS_JP = {
+LABELS_JP_MAP = {
     "面白い・気になる形だ": "面白い", "美しい・芸術的だ": "美しい", "不思議・意味不明": "不思議",
     "不気味・不安・怖い": "怖い", "何も感じない": "何も感じない", "NO RESPONSE": "NO RESPONSE"
 }
+TARGET_LABELS_JP = ["面白い", "美しい", "不思議", "怖い", "何も感じない"]
+LABEL_COLORS = plt.cm.get_cmap('jet', len(TARGET_LABELS_JP))
 
-def get_pottery_id_list():
-    return [f"{pid}({num})" for pid, num in ASSIGNED_NUMBERS_DICT.items()]
 
+# --- Data Loading and Preprocessing Functions ---
 def load_data_paths(root=''):
     data_paths = []
     if not Path(root).exists():
@@ -98,10 +122,7 @@ def tokenize_japanese(data_paths):
 
 def embed_tokens(data_paths, model, model_id, mode='fulltext'):
     sentences = []
-    # e5 models perform best with a "query: " or "passage: " prefix.
-    # We use "query: " here for similarity comparison.
     use_prefix = 'e5' in model_id.lower()
-    
     for data_path in tqdm(data_paths, desc='PREPARING FOR EMBEDDING'):
         if mode == 'fulltext':
             with open(data_path['TRANSCRIPT'], 'r', encoding='utf-8') as f:
@@ -113,23 +134,112 @@ def embed_tokens(data_paths, model, model_id, mode='fulltext'):
             sentences.append("query: " + content)
         else:
             sentences.append(content)
-
     print(f"Encoding {len(sentences)} sentences with model: {model_id}...")
     embeddings = model.encode(
-        sentences, batch_size=128, 
-        convert_to_numpy=True,
-        normalize_embeddings=True, 
-        show_progress_bar=True
+        sentences, batch_size=128, convert_to_numpy=True,
+        normalize_embeddings=True, show_progress_bar=True
     )
     return embeddings
 
-if __name__ == "__main__":
-    # root = "./src/jomon_kaen_dataset/japan"
-    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+# --- Analysis and Report Generation Functions ---
 
-    # Choose one of the following model IDs to experiment with.
-    # The first time you run a new model, it will be downloaded automatically.
-    
+def calculate_qa_emotion_percentages(data_paths):
+    print("\nCalculating emotion percentages from QA event counts...")
+    for data_path in tqdm(data_paths, desc="Processing QA files"):
+        try:
+            df = pd.read_csv(data_path['QA'])
+            df['label'] = df['answer'].str.strip().map(LABELS_JP_MAP)
+            counts = df['label'].value_counts()
+            total = counts.drop("NO RESPONSE", errors='ignore').sum()
+            percentages = {}
+            if total > 0:
+                for label in TARGET_LABELS_JP:
+                    percentages[label] = (counts.get(label, 0) / total) * 100
+            else:
+                percentages = {label: 0.0 for label in TARGET_LABELS_JP}
+            data_path['qa_percentages'] = percentages
+        except Exception as e:
+            print(f"Warning: Could not process {data_path['QA']}. Error: {e}")
+            data_path['qa_percentages'] = {label: 0.0 for label in TARGET_LABELS_JP}
+    return data_paths
+
+def create_comparison_plot(qa_pct, embed_pct, title):
+    labels = list(qa_pct.keys())
+    qa_values = list(qa_pct.values())
+    embed_values = list(embed_pct.values())
+    y = np.arange(len(labels))
+    height = 0.4
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+    fig.suptitle(title, fontsize=14)
+    ax1.barh(y, qa_values, height, color=[LABEL_COLORS(i) for i in range(len(labels))])
+    ax1.set_title('QA Event Count (%)')
+    ax1.set_xlabel('Percentage')
+    ax1.set_xlim(0, 100)
+    ax1.set_yticks(y)
+    ax1.set_yticklabels(labels)
+    ax1.invert_xaxis()
+    ax1.yaxis.tick_right()
+    ax2.barh(y, embed_values, height, color=[LABEL_COLORS(i) for i in range(len(labels))])
+    ax2.set_title('Transcript Embedding Similarity (%)')
+    ax2.set_xlabel('Percentage')
+    ax2.set_xlim(0, 100)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+def generate_alignment_report(data_paths, model_id, output_filename):
+    print(f"\nGenerating PDF report: {output_filename}")
+    doc = SimpleDocTemplate(output_filename, pagesize=(8.5 * inch, 11 * inch))
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='TitleStyle', fontName=JAPANESE_FONT, fontSize=20, alignment=TA_CENTER, spaceAfter=20))
+    styles.add(ParagraphStyle(name='HeaderStyle', fontName=JAPANESE_FONT, fontSize=16, spaceAfter=12, spaceBefore=20))
+    styles.add(ParagraphStyle(name='BodyStyle', fontName=JAPANESE_FONT, fontSize=10, leading=14))
+    styles.add(ParagraphStyle(name='TranscriptStyle', fontName=JAPANESE_FONT, fontSize=8, leading=12, leftIndent=10, rightIndent=10))
+    story = []
+    story.append(Paragraph("QA vs. Transcript Embedding Alignment Report", styles['TitleStyle']))
+    story.append(Paragraph(f"Analysis generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['BodyStyle']))
+    story.append(Paragraph(f"Embedding Model Used: {model_id}", styles['BodyStyle']))
+    story.append(Spacer(1, 0.25 * inch))
+    all_scores = [dp['alignment_score'] for dp in data_paths if 'alignment_score' in dp]
+    avg_alignment = np.mean(all_scores) if all_scores else 0
+    story.append(Paragraph(f"<b>Overall Average Alignment Score:</b> {avg_alignment:.3f}", styles['HeaderStyle']))
+    story.append(Paragraph("<i>(Cosine similarity between QA % vector and Embedding % vector. 1.0 = perfect alignment)</i>", styles['BodyStyle']))
+    story.append(PageBreak())
+    data_by_pottery = defaultdict(list)
+    for dp in data_paths:
+        data_by_pottery[dp['ID']].append(dp)
+    for pottery_id, sessions in sorted(data_by_pottery.items()):
+        story.append(Paragraph(f"Analysis for Pottery ID: {pottery_id}", styles['HeaderStyle']))
+        pottery_scores = [s['alignment_score'] for s in sessions if 'alignment_score' in s]
+        avg_pottery_alignment = np.mean(pottery_scores) if pottery_scores else 0
+        story.append(Paragraph(f"<b>Average Alignment for this Pottery:</b> {avg_pottery_alignment:.3f}", styles['BodyStyle']))
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceAfter=10))
+        sessions.sort(key=lambda x: x['SESSION_ID'])
+        for i, session in enumerate(sessions):
+            story.append(Paragraph(f"<b>Session:</b> {session['SESSION_ID']} | <b>Alignment:</b> {session.get('alignment_score', 'N/A'):.3f}", styles['BodyStyle']))
+            plot_buffer = create_comparison_plot(session['qa_percentages'], session['embedding_percentages'], title=f"{pottery_id} | {session['SESSION_ID']}")
+            img = Image(plot_buffer, width=7.5*inch, height=3*inch)
+            story.append(img)
+            story.append(Spacer(1, 0.1 * inch))
+            with open(session['TRANSCRIPT'], 'r', encoding='utf-8') as f:
+                transcript_text = f.read().replace('\n', '<br/>')
+            story.append(Paragraph("<b>Transcript:</b>", styles['BodyStyle']))
+            story.append(Paragraph(transcript_text, styles['TranscriptStyle']))
+            if i < len(sessions) - 1:
+                story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey, spaceBefore=10, spaceAfter=10))
+            else:
+                story.append(PageBreak())
+    doc.build(story)
+    print("PDF report generation complete.")
+
+
+if __name__ == "__main__":
+    root = "./src/jomon_kaen_dataset/japan"
+
+    # --- MODEL SELECTION ---
     # 1. Lightweight, recent model from Google.
     # SELECTED_MODEL_ID = 'google/embeddinggemma-300m'
     
@@ -141,73 +251,86 @@ if __name__ == "__main__":
     
     # 4. A model specifically trained on Japanese.
     # SELECTED_MODEL_ID = 'pkshatech/GLuCoSE-base-ja'
-
+    
     if not os.path.exists(root):
         print(f"Error: The directory '{root}' does not exist.")
     elif not os.path.exists(FONT_PATH):
         print(f"Error: The font file '{FONT_PATH}' was not found.")
     else:
+        # Step 1: Load data paths and perform tokenization
         data_paths = load_data_paths(root)
         data_paths = tokenize_japanese(data_paths)
+        
+        # Step 2: Calculate percentages from QA files
+        data_paths = calculate_qa_emotion_percentages(data_paths)
 
+        # Step 3: Load model and generate transcript embeddings
         print(f"\nLoading Sentence Transformer model: {SELECTED_MODEL_ID}...")
-        device = "cuda"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device = "cpu"
         model = SentenceTransformer(SELECTED_MODEL_ID, device=device)
-        
         embeddings = embed_tokens(data_paths, model, SELECTED_MODEL_ID)
-        # embeddings = embed_tokens(data_paths, model, SELECTED_MODEL_ID, mode='tokens')
-
-        # --- CLUSTERING BASED ON SIMILARITY ---
-        target_labels_jp = ["面白い", "美しい", "不思議", "怖い", "何も感じない"]
-        print(f"\nClustering based on vector similarity to: {target_labels_jp}")
-
-        if 'e5' in SELECTED_MODEL_ID.lower():
-            print("Applying 'query: ' prefix to labels for e5 model.")
-            prefixed_labels = ["query: " + label for label in target_labels_jp]
-        else:
-            prefixed_labels = target_labels_jp
-            
-        label_embeddings = model.encode(
-            prefixed_labels, convert_to_numpy=True, normalize_embeddings=True
-        )
-        similarities = cosine_similarity(embeddings, label_embeddings)
-        labels = np.argmax(similarities, axis=1)
         
-        # --- 3D UMAP VISUALIZATION ---
+        # Step 4: Calculate similarity to labels
+        if 'e5' in SELECTED_MODEL_ID.lower():
+            prefixed_labels = ["query: " + label for label in TARGET_LABELS_JP]
+        else:
+            prefixed_labels = TARGET_LABELS_JP
+        label_embeddings = model.encode(prefixed_labels, convert_to_numpy=True, normalize_embeddings=True)
+        similarities = cosine_similarity(embeddings, label_embeddings)
+        
+        # Step 5: Convert similarities to percentages and calculate alignment for the report
+        print("\nCalculating embedding distributions and alignment scores...")
+        embedding_percentages_all = softmax(similarities, axis=1) * 100
+        for i, data_path in enumerate(data_paths):
+            data_path['embedding_percentages'] = {label: embedding_percentages_all[i, j] for j, label in enumerate(TARGET_LABELS_JP)}
+            qa_vector = np.array(list(data_path['qa_percentages'].values()))
+            embed_vector = np.array(list(data_path['embedding_percentages'].values()))
+            if np.linalg.norm(qa_vector) > 0 and np.linalg.norm(embed_vector) > 0:
+                score = np.dot(qa_vector, embed_vector) / (np.linalg.norm(qa_vector) * np.linalg.norm(embed_vector))
+            else:
+                score = 0.0
+            data_path['alignment_score'] = score
+
+        # --- NEW Step 6: Generate the 3D Clustering Visualization ---
+        print("\n--- Generating 3D Clustering Visualization ---")
+        # Determine the dominant cluster for coloring the plot
+        cluster_labels = np.argmax(similarities, axis=1)
+        
+        # Run UMAP to reduce dimensionality to 3D
         print("Running UMAP for 3D visualization...")
         umap_3d = umap.UMAP(
-            n_components=3, # Set to 3 for 3D
-            n_neighbors=15, min_dist=0.0, metric="cosine",
+            n_components=3, n_neighbors=15, min_dist=0.0, metric="cosine",
             random_state=42, n_jobs=1
         ).fit_transform(embeddings)
 
+        # Create and save the plot
         print("Generating 3D plot...")
         fig = plt.figure(figsize=(15, 12))
-        ax = fig.add_subplot(111, projection='3d') # Enable 3D projection
+        ax = fig.add_subplot(111, projection='3d')
         
-        colors = plt.cm.get_cmap('jet', len(target_labels_jp))
-
-        for i, label_text in enumerate(target_labels_jp):
-            idx = (labels == i)
+        for i, label_text in enumerate(TARGET_LABELS_JP):
+            idx = (cluster_labels == i)
             if np.sum(idx) > 0:
                 ax.scatter(
-                    umap_3d[idx, 0], umap_3d[idx, 1], umap_3d[idx, 2], # Use x, y, z
-                    s=50, alpha=0.7, color=colors(i), label=label_text
+                    umap_3d[idx, 0], umap_3d[idx, 1], umap_3d[idx, 2],
+                    s=50, alpha=0.7, color=LABEL_COLORS(i), label=label_text
                 )
         
         ax.set_xlabel("UMAP-1", fontsize=12)
         ax.set_ylabel("UMAP-2", fontsize=12)
-        ax.set_zlabel("UMAP-3", fontsize=12) # Add z-axis label
-        
+        ax.set_zlabel("UMAP-3", fontsize=12)
         plt.legend(loc="best", fontsize=12)
         title_text = f"類似度クエリに基づく3Dクラスタリング\nModel: {SELECTED_MODEL_ID}"
         plt.title(title_text, fontsize=16)
         plt.tight_layout()
         
-        # Create a filename-safe version of the model ID
         model_name_for_file = SELECTED_MODEL_ID.replace('/', '_')
-        output_filename = f"japanese_transcript_cluster_3d_{model_name_for_file}.png"
-        plt.savefig(output_filename)
-        print(f"\n3D Plot successfully saved to '{output_filename}'")
-
-        plt.show()
+        plot_output_filename = f"cluster_plot_3d_{model_name_for_file}.png"
+        plt.savefig(plot_output_filename)
+        print(f"\n3D Plot successfully saved to '{plot_output_filename}'")
+        # plt.show() # Uncomment to display the plot interactively after saving
+        
+        # --- Step 7: Generate the final PDF report ---
+        report_output_filename = f"Alignment_Report_{model_name_for_file}.pdf"
+        generate_alignment_report(data_paths, SELECTED_MODEL_ID, report_output_filename)

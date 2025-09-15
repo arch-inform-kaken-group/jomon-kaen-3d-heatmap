@@ -257,7 +257,82 @@ class PreprocessJomonKaenDataset(Dataset):
         if self.mode == 0:
             print("NOT YET IMPLEMENT MODE=0")
         elif self.mode == 1:
-            print("NOT YET IMPLEMENT MODE=1")
+            # Define constants for file names and emotion order, based on util.py
+            voxel_filename = "eye_gaze_voxel"
+            segmented_meshes_dirname = "qa_segmented_mesh"
+            EMOTION_ORDER = [
+                "面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明",
+                "不気味・不安・怖い", "何も感じない"
+            ]
+
+            data_paths = self.data[index]
+            pottery_file = str(data_paths['processed_pottery_path'])
+            heatmap_file = str(data_paths[voxel_filename])
+            qna_dir = str(data_paths[segmented_meshes_dirname])
+
+            try:
+                pottery_pcd = o3d.io.read_point_cloud(pottery_file)
+                heatmap_pcd = o3d.io.read_point_cloud(heatmap_file)
+            except Exception:
+                # Fallback: return zero tensors if essential files are missing/corrupt
+                input_tensor = torch.zeros((self.num_points, 6), dtype=torch.float32)
+                target_tensor = torch.zeros((self.num_points, 6), dtype=torch.float32)
+                return input_tensor, target_tensor
+
+            # 1. Process INPUT data (Pottery XYZ + RGB)
+            pottery_points = np.asarray(pottery_pcd.points, dtype=np.float32)
+            if pottery_pcd.has_colors():
+                pottery_colors = np.asarray(pottery_pcd.colors, dtype=np.float32)
+            else:
+                pottery_colors = np.full_like(pottery_points, 0.5, dtype=np.float32)
+            
+            if pottery_points.shape[0] == 0:
+                input_tensor = torch.zeros((self.num_points, 6), dtype=torch.float32)
+                target_tensor = torch.zeros((self.num_points, 6), dtype=torch.float32)
+                return input_tensor, target_tensor
+
+            num_available_points = len(pottery_points)
+
+            # 2. Process TARGET data (Heatmap Intensity + 5 Emotion Labels)
+            # Heatmap Target
+            if heatmap_pcd.has_colors() and len(heatmap_pcd.points) == num_available_points:
+                heatmap_intensities = np.mean(np.asarray(heatmap_pcd.colors, dtype=np.float32), axis=1, keepdims=True)
+            else:
+                heatmap_intensities = np.zeros((num_available_points, 1), dtype=np.float32)
+            
+            # Emotion Target
+            qa_target_matrix = np.zeros((num_available_points, len(EMOTION_ORDER)), dtype=np.float32)
+            for i, emotion_name in enumerate(EMOTION_ORDER):
+                emotion_file = os.path.join(qna_dir, f"{emotion_name}_voxel.ply")
+                if os.path.exists(emotion_file):
+                    try:
+                        emotion_pcd = o3d.io.read_point_cloud(emotion_file)
+                        if emotion_pcd.has_points() and emotion_pcd.has_colors() and len(emotion_pcd.points) == num_available_points:
+                            emotion_colors = np.asarray(emotion_pcd.colors, dtype=np.float32)
+                            is_present = np.any(emotion_colors > 1e-3, axis=1)
+                            qa_target_matrix[:, i] = is_present.astype(np.float32)
+                    except Exception:
+                        pass # Skip corrupt emotion files
+
+            # 3. Sample points consistently across all data
+            replace = num_available_points < self.num_points
+            sample_indices = np.random.choice(num_available_points, self.num_points, replace=replace)
+
+            sampled_pottery_points = pottery_points[sample_indices]
+            sampled_pottery_colors = pottery_colors[sample_indices]
+            sampled_heatmap_intensities = heatmap_intensities[sample_indices]
+            sampled_qa_target = qa_target_matrix[sample_indices]
+
+            # 4. Combine and create final tensors
+            # Input: XYZ (3) + RGB (3) = 6 features
+            input_features = np.hstack((sampled_pottery_points, sampled_pottery_colors))
+            # Target: Heatmap (1) + Emotions (5) = 6 features
+            target_features = np.hstack((sampled_heatmap_intensities, sampled_qa_target))
+
+            input_tensor = torch.from_numpy(input_features)
+            target_tensor = torch.from_numpy(target_features)
+
+            return input_tensor, target_tensor
         elif self.mode == 2:
             print("NOT YET IMPLEMENT MODE=2")
         else:
