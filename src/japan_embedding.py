@@ -19,6 +19,9 @@ from sentence_transformers import SentenceTransformer
 import umap
 from sklearn.metrics.pairwise import cosine_similarity
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 FONT_PATH = "C:/Windows/Fonts/msgothic.ttc"
 
@@ -113,13 +116,16 @@ def embed_tokens(data_paths, model, model_id, mode='fulltext'):
 
     print(f"Encoding {len(sentences)} sentences with model: {model_id}...")
     embeddings = model.encode(
-        sentences, batch_size=128, convert_to_numpy=True,
-        normalize_embeddings=True, show_progress_bar=True
+        sentences, batch_size=128, 
+        convert_to_numpy=True,
+        normalize_embeddings=True, 
+        show_progress_bar=True
     )
     return embeddings
 
 if __name__ == "__main__":
-    root = "./src/jomon_kaen_dataset/japan"
+    # root = "./src/jomon_kaen_dataset/japan"
+    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
 
     # Choose one of the following model IDs to experiment with.
     # The first time you run a new model, it will be downloaded automatically.
@@ -145,7 +151,7 @@ if __name__ == "__main__":
         data_paths = tokenize_japanese(data_paths)
 
         print(f"\nLoading Sentence Transformer model: {SELECTED_MODEL_ID}...")
-        device = "cpu"
+        device = "cuda"
         model = SentenceTransformer(SELECTED_MODEL_ID, device=device)
         
         embeddings = embed_tokens(data_paths, model, SELECTED_MODEL_ID)
@@ -179,7 +185,7 @@ if __name__ == "__main__":
         fig = plt.figure(figsize=(15, 12))
         ax = fig.add_subplot(111, projection='3d') # Enable 3D projection
         
-        colors = plt.cm.get_cmap('tab10', len(target_labels_jp))
+        colors = plt.cm.get_cmap('jet', len(target_labels_jp))
 
         for i, label_text in enumerate(target_labels_jp):
             idx = (labels == i)
