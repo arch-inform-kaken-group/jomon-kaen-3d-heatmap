@@ -107,6 +107,45 @@ import matplotlib.patches as mpatches  #
 
 #     return qa_pcd, qa_segmented_meshes, combined_mesh
 
+# Mapping long labels to short labels for plots and CSVs
+SHORT_LABELS_JP = {
+    "面白い・気になる形だ": "面白い",
+    "美しい・芸術的だ": "美しい",
+    "不思議・意味不明": "不思議",
+    "不気味・不安・怖い": "怖い",
+    "何も感じない": "何も感じない",
+    "NO RESPONSE": "NO RESPONSE"
+}
+
+SHORT_LABELS_EN = {
+    "Interesting and attentional shape": "Interesting",
+    "Beautiful and artistic": "Beautiful",
+    "Strange and incomprehensible": "Strange",
+    "Creepy / unsettling / scary": "Scary",
+    "Feel nothing": "Feel nothing",
+    "NO RESPONSE": "NO RESPONSE"
+}
+
+# Mapping symbols
+EMOTION_SYMBOL_MAP_JP = {
+    "面白い・気になる形だ": "◇",
+    "美しい・芸術的だ": "□",
+    "不思議・意味不明": "△",
+    "不気味・不安・怖い": "X",
+    "何も感じない": "○",
+    "NO RESPONSE": "・"
+}
+
+EMOTION_SYMBOL_MAP_EN = {
+    "Interesting and attentional shape": "◇",
+    "Beautiful and artistic": "□",
+    "Strange and incomprehensible": "△",
+    "Creepy / unsettling / scary": "X",
+    "Feel nothing": "○",
+    "NO RESPONSE": "・"
+}
+
+
 def process_questionnaire_answers_fast(
     input_file,
     model_file,
@@ -114,6 +153,7 @@ def process_questionnaire_answers_fast(
     qna_answer_color_map,
     hololens_2_spatial_error,
     gaussian_denominator,
+    language='japan' # Added language parameter
 ):
     """
     Processes questionnaire data to map gaze points onto a 3D model and
@@ -126,6 +166,15 @@ def process_questionnaire_answers_fast(
         - combined_mesh (open3d.geometry.TriangleMesh): Mesh with blended colors.
         - timeline_fig (matplotlib.figure.Figure): Figure object for the emotion timeline.
     """
+    
+    # Select language-specific maps
+    if language == 'japan':
+        EMOTION_SHORT_LABEL_MAP = SHORT_LABELS_JP
+        EMOTION_SYMBOL_MAP = EMOTION_SYMBOL_MAP_JP
+    else:
+        EMOTION_SHORT_LABEL_MAP = SHORT_LABELS_EN
+        EMOTION_SYMBOL_MAP = EMOTION_SYMBOL_MAP_EN
+
     qa_segmented_meshes = {}
 
     df = pd.read_csv(input_file, header=0, sep=",")
@@ -135,6 +184,9 @@ def process_questionnaire_answers_fast(
     df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce") # Ensure timestamp is numeric
     df["answer"] = df["answer"].astype(str).str.strip()
     df.dropna(subset=["estX", "estY", "estZ", "answer", "timestamp"], inplace=True)
+    
+    # Map long labels to short labels
+    df['answer_short'] = df['answer'].map(EMOTION_SHORT_LABEL_MAP)
 
     # Sort by timestamp for correct timeline plotting
     df = df.sort_values('timestamp').reset_index(drop=True)
@@ -212,15 +264,18 @@ def process_questionnaire_answers_fast(
 
     # A new block starts if the emotion changes OR if the time gap is > 50ms.
     df['time_diff'] = df['timestamp'].diff()
+    # Use the long label for comparison to find blocks
     emotion_changed = df['answer'] != df['answer'].shift()
     time_gap_exceeded = df['time_diff'] > 0.05
     df['block_id'] = (emotion_changed | time_gap_exceeded).cumsum()
 
     # Group by blocks to get start, end, and emotion for each continuous block.
+    # Use the long label for the plot, but short label for the table
     block_df = df.groupby('block_id').agg(
         start_time=('timestamp', 'min'),
         end_time=('timestamp', 'max'),
-        answer=('answer', 'first')
+        answer=('answer', 'first'),
+        answer_short=('answer_short', 'first')
     ).reset_index()
 
     # Duration of a block is its end time minus its start time.
@@ -255,7 +310,44 @@ def process_questionnaire_answers_fast(
 
     timeline_fig.tight_layout(rect=[0, 0, 0.85, 1])
 
-    return qa_pcd, qa_segmented_meshes, combined_mesh, timeline_fig
+    # --- CSV SAVING CODE STARTS HERE ---
+
+    # Calculate total durations and percentages for all unique answers
+    total_durations = block_df.groupby('answer')['duration'].sum().reset_index()
+    total_duration_sum = total_durations['duration'].sum()
+    
+    if total_duration_sum > 0:
+        total_durations['percentage'] = (total_durations['duration'] / total_duration_sum) * 100
+    else:
+        total_durations['percentage'] = 0.0
+
+    # Create the final table
+    final_table_df = pd.DataFrame(columns=['シンボル', '感情クラス', '視線固定時間 (ms)', '%'])
+
+    for _, row in total_durations.iterrows():
+        long_label = row['answer']
+        short_label = EMOTION_SHORT_LABEL_MAP.get(long_label, long_label)
+        symbol = EMOTION_SYMBOL_MAP.get(long_label, "")
+        duration_ms = round(row['duration'] * 1000, 0)
+        percentage = round(row['percentage'], 1)
+        
+        # Append the new row to the DataFrame
+        new_row = pd.DataFrame([{
+            'シンボル': symbol,
+            '感情クラス': short_label,
+            '視線固定時間 (ms)': duration_ms,
+            '%': percentage
+        }])
+        final_table_df = pd.concat([final_table_df, new_row], ignore_index=True)
+
+    # Reorder rows based on the symbol order in the image
+    symbol_order = ["◇", "□", "△", "X", "○"]
+    final_table_df['order'] = final_table_df['シンボル'].apply(lambda x: symbol_order.index(x) if x in symbol_order else len(symbol_order))
+    final_table_df = final_table_df.sort_values(by='order').drop('order', axis=1)
+    
+    # --- CSV SAVING CODE ENDS HERE ---
+
+    return qa_pcd, qa_segmented_meshes, combined_mesh, timeline_fig, final_table_df
 
 
 # MARKERS

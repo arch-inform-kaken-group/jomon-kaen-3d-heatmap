@@ -722,7 +722,7 @@ def filter_data_on_condition(
                         gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
                     else:
-                        qa_pointcloud, qa_segmented_mesh, combined_mesh, timeline_fig = process_questionnaire_answers_fast(
+                        qa_pointcloud, qa_segmented_mesh, combined_mesh, timeline_fig, final_table_df = process_questionnaire_answers_fast(
                             input_file=data_paths['qa'],
                             model_file=data_paths['model'],
                             base_color=base_color,
@@ -730,7 +730,12 @@ def filter_data_on_condition(
                             hololens_2_spatial_error=hololens_2_spatial_error,
                             gaussian_denominator=GAUSSIAN_DENOMINATOR
                         )
-                        if generate_sanity_check: active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
+                        if generate_sanity_check: 
+                            active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
+                            # Save the table to a CSV file
+                            filename = f"average_data.csv"
+                            save_path = os.path.join(data_paths['PROCESSED_DATA'], filename)
+                            final_table_df.to_csv(save_path, index=False, encoding='utf-8-sig')
 
                     if generate_pointcloud: active_threads.append(save_geometry_threaded(data_paths[qa_pc_filename], qa_pointcloud, error_queue))
                     if generate_mesh: active_threads.append(save_geometry_threaded(data_paths[combined_mesh_filename], combined_mesh, error_queue))
