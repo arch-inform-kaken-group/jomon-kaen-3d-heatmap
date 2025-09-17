@@ -153,7 +153,8 @@ def process_questionnaire_answers_fast(
     qna_answer_color_map,
     hololens_2_spatial_error,
     gaussian_denominator,
-    language='japan' # Added language parameter
+    language='japan', # Added language parameter
+    sanity_check=False,
 ):
     """
     Processes questionnaire data to map gaze points onto a 3D model and
@@ -324,26 +325,27 @@ def process_questionnaire_answers_fast(
     # Create the final table
     final_table_df = pd.DataFrame(columns=['シンボル', '感情クラス', '視線固定時間 (ms)', '%'])
 
-    for _, row in total_durations.iterrows():
-        long_label = row['answer']
-        short_label = EMOTION_SHORT_LABEL_MAP.get(long_label, long_label)
-        symbol = EMOTION_SYMBOL_MAP.get(long_label, "")
-        duration_ms = round(row['duration'] * 1000, 0)
-        percentage = round(row['percentage'], 1)
-        
-        # Append the new row to the DataFrame
-        new_row = pd.DataFrame([{
-            'シンボル': symbol,
-            '感情クラス': short_label,
-            '視線固定時間 (ms)': duration_ms,
-            '%': percentage
-        }])
-        final_table_df = pd.concat([final_table_df, new_row], ignore_index=True)
+    if sanity_check:
+        for _, row in total_durations.iterrows():
+            long_label = row['answer']
+            short_label = EMOTION_SHORT_LABEL_MAP.get(long_label, long_label)
+            symbol = EMOTION_SYMBOL_MAP.get(long_label, "")
+            duration_ms = round(row['duration'] * 1000, 0)
+            percentage = round(row['percentage'], 1)
+            
+            # Append the new row to the DataFrame
+            new_row = pd.DataFrame([{
+                'シンボル': symbol,
+                '感情クラス': short_label,
+                '視線固定時間 (ms)': duration_ms,
+                '%': percentage
+            }])
+            final_table_df = pd.concat([final_table_df, new_row], ignore_index=True)
 
-    # Reorder rows based on the symbol order in the image
-    symbol_order = ["◇", "□", "△", "X", "○"]
-    final_table_df['order'] = final_table_df['シンボル'].apply(lambda x: symbol_order.index(x) if x in symbol_order else len(symbol_order))
-    final_table_df = final_table_df.sort_values(by='order').drop('order', axis=1)
+        # Reorder rows based on the symbol order in the image
+        symbol_order = ["◇", "□", "△", "X", "○"]
+        final_table_df['order'] = final_table_df['シンボル'].apply(lambda x: symbol_order.index(x) if x in symbol_order else len(symbol_order))
+        final_table_df = final_table_df.sort_values(by='order').drop('order', axis=1)
     
     # --- CSV SAVING CODE ENDS HERE ---
 

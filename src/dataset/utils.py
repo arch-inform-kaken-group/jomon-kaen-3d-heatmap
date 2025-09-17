@@ -349,8 +349,6 @@ def filter_data_on_condition(
     Based on preprocess, use_cache the function will generate the training data in processed folder.
     Finally returns a list of dictionaries that provide the path to all training data.
 
-    TODO: Implement a system to filter according to text language before group
-
     Args:
         root (str): Root directory that contains all groups
         pottery_path (str): Path to pottery files
@@ -655,9 +653,9 @@ def filter_data_on_condition(
             if generate_pc_hm_voxel:
                 # Eye gaze intensity point cloud & heatmap
                 # Eye gaze voxel
-                if use_cache and Path(data_paths[eg_pointcloud_filename]).exists() \
-                    and Path(data_paths[eg_heatmap_rgb_filename]).exists() \
-                    and Path(data_paths[voxel_filename]).exists():
+                if use_cache and (Path(data_paths[eg_pointcloud_filename]).exists() or not generate_pointcloud) \
+                    and (Path(data_paths[eg_heatmap_rgb_filename]).exists() or not generate_mesh) \
+                    and (Path(data_paths[voxel_filename]).exists() or not generate_voxel):
                     pass
                 else:
                     eye_gaze_pointcloud, eye_gaze_heatmap_rgb_mesh, final_vertex_intensities, mesh_greyscale = generate_gaze_pointcloud_heatmap(
@@ -707,9 +705,10 @@ def filter_data_on_condition(
             if generate_qna and (mode==0 or mode==1):
                 # QNA combined point cloud
                 # QNA segmented mesh
-                if use_cache and Path(data_paths[qa_pc_filename]).exists() \
-                    and Path(data_paths[segmented_meshes_dirname]).exists() \
-                    and Path(data_paths[combined_mesh_filename]).exists():
+                if use_cache and (Path(data_paths[qa_pc_filename]).exists() or not generate_pointcloud) \
+                    and (Path(data_paths[segmented_meshes_dirname]).exists()) \
+                    and (Path(data_paths[combined_mesh_filename]).exists() or not generate_mesh) \
+                    and not generate_voxel:
                     pass
                 else:
                     if qna_marker:
@@ -728,7 +727,8 @@ def filter_data_on_condition(
                             base_color=base_color,
                             qna_answer_color_map=qna_answer_color_map,
                             hololens_2_spatial_error=hololens_2_spatial_error,
-                            gaussian_denominator=GAUSSIAN_DENOMINATOR
+                            gaussian_denominator=GAUSSIAN_DENOMINATOR,
+                            sanity_check=generate_sanity_check,
                         )
                         if generate_sanity_check: 
                             active_threads.append(save_plot_threaded(str(Path(data_paths['PROCESSED_DATA']) / 'qa_timeline.png'), timeline_fig, error_queue))
@@ -743,18 +743,23 @@ def filter_data_on_condition(
                     os.makedirs(data_paths[segmented_meshes_dirname], exist_ok=True)
                     for k in qa_segmented_mesh.keys():
                         segmented_mesh = qa_segmented_mesh[k][0]
-                        if generate_voxel: voxelized_mesh = generate_voxel_from_mesh_rgb(
-                            mesh=segmented_mesh,
-                            vertex_colors=qa_segmented_mesh[k][1],
-                            target_voxel_resolution=target_voxel_resolution,
-                            base_pottery_pcd=data_paths['processed_pottery_path'],
-                        )
-
+                        
                         individual_segment = data_paths[segmented_meshes_dirname] / Path(f"{k}.ply")
                         individual_segment_voxelized = data_paths[segmented_meshes_dirname] / Path(f"{k}_voxel.ply")
 
+                        if use_cache and (Path(individual_segment_voxelized).exists() or not generate_voxel):
+                            pass
+                        else:
+                            if generate_voxel: voxelized_mesh = generate_voxel_from_mesh_rgb(
+                                mesh=segmented_mesh,
+                                vertex_colors=qa_segmented_mesh[k][1],
+                                target_voxel_resolution=target_voxel_resolution,
+                                base_pottery_pcd=data_paths['processed_pottery_path'],
+                            )
+
+                            if generate_voxel: active_threads.append(save_geometry_threaded(individual_segment_voxelized, voxelized_mesh, error_queue))
+
                         if generate_mesh: active_threads.append(save_geometry_threaded(individual_segment, segmented_mesh, error_queue))
-                        if generate_voxel: active_threads.append(save_geometry_threaded(individual_segment_voxelized, voxelized_mesh, error_queue))
 
             if (generate_voice or generate_transcript) and (mode==0 or mode==2):
                 # Voice

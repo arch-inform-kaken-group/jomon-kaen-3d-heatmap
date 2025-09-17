@@ -122,8 +122,9 @@ class JomonKaenDataModule(pl.LightningDataModule):
             "preprocess": True,
             "target_voxel_resolution": 512,
             "mode": 1,
-            "generate_pointcloud": False,
-            "generate_mesh": False,
+            "limit": 1000,
+            "min_emotion_count": 2,
+            "min_qa_size": 10,
         }
         if stage == 'fit' or stage is None:
             self.train_dataset, self.val_dataset = get_jomon_kaen_dataset(
@@ -262,15 +263,15 @@ class PointNetLightningModule(pl.LightningModule):
 
 # 4. MAIN EXECUTION BLOCK (MODIFIED)
 if __name__ == '__main__':
-    NUM_POINTS, BATCH_SIZE, MAX_EPOCHS = 4096 * 2, 4, 200
+    NUM_POINTS, BATCH_SIZE, MAX_EPOCHS = 4096 * 4, 4, 200
     NUM_GPUS = torch.cuda.device_count()
-    NUM_WORKERS = int(os.cpu_count() / 2) if os.cpu_count() else 0
+    NUM_WORKERS = int(os.cpu_count() / 4) if os.cpu_count() else 0
     OUTPUT_DIR = "outputs_multitask"
-    LEARNING_RATE_INITIAL, LEARNING_RATE_FINAL = 1e-3, 1e-5
+    LEARNING_RATE_INITIAL, LEARNING_RATE_FINAL = 1e-3, 1e-3
 
     torch.set_float32_matmul_precision('high')
     datamodule = JomonKaenDataModule(
-        data_root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
+        data_root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan",
         pottery_path=r"D:\storage\jomon_kaen\pottery",
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
