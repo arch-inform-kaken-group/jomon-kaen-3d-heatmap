@@ -32,6 +32,8 @@ def analyze_and_plot_point_cloud(csv_file_path):
     fig = plt.figure(figsize=(12, 9))
     ax = fig.add_subplot(111, projection='3d')
 
+    point_counts['z'] = -point_counts['z']
+
     # Swap Z and Y to retain upright orientation
     scatter = ax.scatter(
         point_counts['x'],

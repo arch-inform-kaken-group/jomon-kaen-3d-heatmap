@@ -54,11 +54,11 @@ DEFAULT_TARGET_VOXEL_RESOLUTION = 512
 # cyan_to_dark_red_colors = [(0.0, 1.0, 1.0), (0.5, 0.0, 0.0)]  # Bright Cyan to Dark Red
 # DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_dark_red", cyan_to_dark_red_colors)
 
-cyan_to_black_colors = [(0.0, 0.0, 0.0), (0.0, 1.0, 1.0)]
-DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_black",
-                                                 cyan_to_black_colors)
+# cyan_to_black_colors = [(0.0, 0.0, 0.0), (0.0, 1.0, 1.0)]
+# DEFAULT_CMAP = LinearSegmentedColormap.from_list("cyan_to_black",
+#                                                  cyan_to_black_colors)
 
-# DEFAULT_CMAP = plt.get_cmap('jet')
+DEFAULT_CMAP = plt.get_cmap('jet')
 
 DEFAULT_BASE_COLOR = [0.0, 0.0, 0.0]
 

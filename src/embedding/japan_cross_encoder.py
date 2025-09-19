@@ -247,9 +247,9 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
 
 
 if __name__ == "__main__":
-    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    root = "./src/jomon_kaen_dataset/japan"
     
-    # --- MODEL SELECTION: Using a verified, powerful multilingual Zero-Shot model ---
     SELECTED_MODEL_ID = 'MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7'
 
     if not os.path.exists(root):
@@ -272,7 +272,6 @@ if __name__ == "__main__":
         
         print(f"{len(transcripts)}件の書き起こしを分類中 (この処理には時間がかかる場合があります)...")
         # The pipeline returns a list of dictionaries. We process them in a loop.
-        # Using a generator with tqdm for a nice progress bar
         results_generator = (classifier(transcript, TARGET_LABELS_JP, multi_label=False) for transcript in transcripts)
         all_results = list(tqdm(results_generator, total=len(transcripts)))
 
