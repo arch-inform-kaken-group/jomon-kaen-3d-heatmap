@@ -34,17 +34,18 @@ def main():
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
         mode=1,
         limit=1000,
-        # session_ids=["2025_06_25_17_12_43"],
+        # session_ids=["2025_07_10_10_16_38"],
+        groups=['G10'],
         ####################################################################
         # groups=['GX'],
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
         generate_voice=False,
         # generate_pottery_dogu_voxel=False,
-        # generate_sanity_check=True,
+        generate_sanity_check=True,
         # generate_fixation=True,
-        generate_pointcloud=False,
-        generate_mesh=False,
+        # generate_pointcloud=False,
+        # generate_mesh=False,
         # generate_voxel=False,
         # generate_transcript=False,
         ###############

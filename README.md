@@ -97,14 +97,15 @@ train_dataset, test_dataset = get_jomon_kaen_dataset(
 train_dataset, test_dataset = get_jomon_kaen_dataset(
         root="./src/data/japan",
         pottery_path="./src/pottery",
-        test_groups=["IN0017", "TK0020"],
+        test_groups=["G17"],
         preprocess=True,
         use_cache=True,
         # 'HEATMAP(VOXEL), QNA, VOICE': 0 | 'HEATMAP(VOXEL), QNA': 1 | 'HEATMAP(VOXEL), VOICE': 2 | 'HEATMAP(VOXEL)': 3
-        mode=3,
+        mode=1,
         generate_pointcloud=False,
         generate_mesh=False,
         generate_transcript=False,
+        generate_voxel=True,
     )
 ```
 
