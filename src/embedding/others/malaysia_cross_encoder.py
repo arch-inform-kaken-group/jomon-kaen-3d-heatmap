@@ -28,8 +28,22 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from svglib.svglib import svg2rlg
 
-# --- Environment/Path Setup ---
-PDF_FONT = 'Helvetica'
+font_path='C:/Windows/Fonts/simhei.ttf'
+
+try:
+    pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+    pdfmetrics.registerFont(TTFont('ChineseFont-Bold', font_path))
+    CHINESE_FONT = 'ChineseFont'
+    CHINESE_FONT_BOLD = 'ChineseFont-Bold'
+    print(
+        f"Successfully registered Japanese font '{font_path}' for PDF generation."
+    )
+except Exception as e:
+    print(
+        f"Error registering font: {e}. Japanese text in PDF may not render correctly."
+    )
+    CHINESE_FONT = 'Helvetica'
+    CHINESE_FONT_BOLD = 'Helvetica-Bold'
 
 # --- Global Constants (ENGLISH VERSION) ---
 LABELS_EN_MAP = {
@@ -176,28 +190,38 @@ def process_pottery_group(pottery_data):
     return pottery_story
 
 def generate_alignment_report(data_paths, model_id, output_filename, max_workers=10, debug=False):
+    """Generates the complete PDF report using the specified custom font."""
     print(f"\nGenerating PDF report: {output_filename}")
+
     doc = SimpleDocTemplate(output_filename, pagesize=(8.5 * inch, 11 * inch))
+    
+    # --- Define PDF Styles using the Custom Font ---
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='TitleStyle', fontName=PDF_FONT, fontSize=20, alignment=TA_CENTER, spaceAfter=20))
-    styles.add(ParagraphStyle(name='HeaderStyle', fontName=PDF_FONT, fontSize=16, spaceAfter=12, spaceBefore=20))
-    styles.add(ParagraphStyle(name='BodyStyle', fontName=PDF_FONT, fontSize=10, leading=14))
-    styles.add(ParagraphStyle(name='TranscriptStyle', fontName=PDF_FONT, fontSize=8, leading=12, leftIndent=10, rightIndent=10))
+    styles.add(ParagraphStyle(name='TitleStyle', fontName=CHINESE_FONT_BOLD, fontSize=20, alignment=TA_CENTER, spaceAfter=20))
+    styles.add(ParagraphStyle(name='HeaderStyle', fontName=CHINESE_FONT_BOLD, fontSize=16, spaceAfter=12, spaceBefore=20))
+    styles.add(ParagraphStyle(name='BodyStyle', fontName=CHINESE_FONT, fontSize=10, leading=14))
+    styles.add(ParagraphStyle(name='TranscriptStyle', fontName=CHINESE_FONT, fontSize=8, leading=12, leftIndent=10, rightIndent=10))
+    
     styles_for_workers = {
         'HeaderStyle': styles['HeaderStyle'],
         'BodyStyle': styles['BodyStyle'],
         'TranscriptStyle': styles['TranscriptStyle']
     }
+    
     story = []
-    story.append(Paragraph("QA vs. Transcript Classification Alignment Report", styles['TitleStyle']))
-    story.append(Paragraph(f"Analysis generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} in Petaling Jaya", styles['BodyStyle']))
-    story.append(Paragraph(f"Classification Model Used: {model_id}", styles['BodyStyle']))
+    
+    # --- Report Title Page ---
+    story.append(Paragraph("QA vs. Transcript Embedding Alignment Report", styles['TitleStyle']))
+    story.append(Paragraph(f"Analysis generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['BodyStyle']))
+    story.append(Paragraph(f"Embedding Model Used: {model_id}", styles['BodyStyle']))
     story.append(Spacer(1, 0.25 * inch))
     all_scores = [dp['alignment_score'] for dp in data_paths if 'alignment_score' in dp]
     avg_alignment = np.mean(all_scores) if all_scores else 0
     story.append(Paragraph(f"<b>Overall Average Alignment Score:</b> {avg_alignment:.3f}", styles['HeaderStyle']))
-    story.append(Paragraph("<i>(Cosine similarity between QA % vector and Classification Score % vector. 1.0 = perfect alignment)</i>", styles['BodyStyle']))
+    story.append(Paragraph("<i>(Cosine similarity between QA % vector and Embedding % vector. 1.0 = perfect alignment)</i>", styles['BodyStyle']))
     story.append(PageBreak())
+
+    # --- Pre-load transcripts ---
     print("Pre-loading transcripts into memory...")
     transcript_cache = {}
     for dp in tqdm(data_paths, desc="Reading Transcripts"):
@@ -208,15 +232,21 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
                     transcript_cache[path] = f.read().replace('\n', '<br/>')
             except FileNotFoundError:
                 transcript_cache[path] = "<i>Error: Transcript file not found.</i>"
+    
+    # --- Group data and process in parallel ---
     data_by_pottery = defaultdict(list)
     for dp in data_paths:
         dp['transcript_text'] = transcript_cache.get(dp['TRANSCRIPT'], "<i>Error loading transcript.</i>")
         data_by_pottery[dp['ID']].append(dp)
+        
+    pottery_stories = []
     pottery_tasks = sorted(data_by_pottery.items())
+
     if debug:
         print("\nRunning in debug mode (sequentially)...")
         init_worker(styles_for_workers)
-        pottery_stories = [process_pottery_group(task) for task in tqdm(pottery_tasks, desc="Debugging Pottery Groups")]
+        for task in tqdm(pottery_tasks, desc="Debugging Pottery Groups"):
+            pottery_stories.append(process_pottery_group(task))
     else:
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=max_workers,
@@ -225,8 +255,11 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
         ) as executor:
             results_iterator = executor.map(process_pottery_group, pottery_tasks)
             pottery_stories = list(tqdm(results_iterator, total=len(pottery_tasks), desc="Processing Pottery Groups in Parallel"))
+
+    # --- Assemble and build the final PDF ---
     for story_chunk in pottery_stories:
         story.extend(story_chunk)
+            
     print("All content generated. Building final PDF document...")
     doc.build(story)
     print("PDF report generation complete.")
@@ -237,7 +270,7 @@ if __name__ == "__main__":
     
     # --- MODEL SELECTION: Using a Cross-Encoder for higher accuracy ---
     # This model is small but very effective for classification tasks.
-    SELECTED_MODEL_ID = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+    SELECTED_MODEL_ID = 'cross-encoder/ms-marco-MiniLM-L12-v2'
 
     if not os.path.exists(root):
         print(f"Error: The directory '{root}' does not exist.")
