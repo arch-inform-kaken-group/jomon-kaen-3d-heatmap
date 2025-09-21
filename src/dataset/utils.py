@@ -236,6 +236,7 @@ MESH_PC_VOXEL_EXTENSION = ".ply"
 VOICE_EXTENSION = ".mp3"
 SANITY_CHECK_EXTENSION = ".png"
 TRANSCRIPT_EXTENSION = ".txt"
+BACKUP_MODEL_EXTENSION = '.glb'
 
 ### UTILS ###
 
@@ -472,15 +473,16 @@ def filter_data_on_condition(
                 qna_error = False
                 voice_error = False
                 data_paths = {}
-                pottery_path = session_path / Path(p)
+                object_path = session_path / Path(p)
                 processed_pottery_path = processed_session_path / Path(p)
 
-                pointcloud_path = pottery_path / Path("pointcloud.csv")
-                qa_path = pottery_path / Path("qa_corrected.csv")
-                model_path = pottery_path / Path("model.obj")
-                # voice_path = pottery_path / Path("session_audio_0.wav")
-                voice_path = pottery_path / Path("session_audio_45s.mp3")
-                transcript_path = pottery_path / Path("final_transcript.txt")
+                pointcloud_path = object_path / Path("pointcloud.csv")
+                qa_path = object_path / Path("qa_corrected.csv")
+                model_path = object_path / Path("model.obj")
+                backup_model_path = pottery_path / Path(f"{p}{BACKUP_MODEL_EXTENSION}")
+                # voice_path = object_path / Path("session_audio_0.wav")
+                voice_path = object_path / Path("session_audio_45s.mp3")
+                transcript_path = object_path / Path("final_transcript.txt")
 
                 output_sanity_plot = processed_pottery_path / f"{sanity_plot_filename}{SANITY_CHECK_EXTENSION}"
                 output_point_cloud = processed_pottery_path / f"{eg_pointcloud_filename}{MESH_PC_VOXEL_EXTENSION}"
@@ -496,8 +498,12 @@ def filter_data_on_condition(
                 output_final_transcript = processed_pottery_path / f"{final_transcript_filename}{TRANSCRIPT_EXTENSION}"
 
                 # Check if paths exist and increment error
-                if Path(model_path).exists():
-                    data_paths['model'] = str(model_path)
+                if Path(model_path).exists() or Path(backup_model_path).exists():
+                    if Path(model_path).exists():
+                        data_paths['model'] = str(model_path)
+                    else:
+                        data_paths['model'] = str(backup_model_path)
+                        
                     if Path(pointcloud_path).exists():
                         pc = pd.read_csv(Path(pointcloud_path), header=0).to_numpy()
                         if (pc.shape[0] > 0):
