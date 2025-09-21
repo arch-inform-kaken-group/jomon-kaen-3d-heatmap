@@ -562,14 +562,15 @@ def generate_alignment_report(data_paths,
 
 
 if __name__ == "__main__":
-    root = "./src/jomon_kaen_dataset/japan"
-    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    # root = "./src/jomon_kaen_dataset/japan"
+    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
 
     # --- MODEL SELECTION ---
     # 1. Lightweight, recent model from Google.
     # SELECTED_MODEL_ID = 'google/embeddinggemma-300m'
 
-    SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-0.6B'
+    # SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-0.6B'
+    SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-8B'
 
     # 3. Popular, well-balanced multilingual model.
     # SELECTED_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
@@ -588,8 +589,8 @@ if __name__ == "__main__":
 
         # Step 3: Load model and generate transcript embeddings
         print(f"\nLoading Sentence Transformer model: {SELECTED_MODEL_ID}...")
-        # device = "cuda" if torch.cuda.is_available() else "cpu"
-        device = "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device = "cpu"
         model = SentenceTransformer(SELECTED_MODEL_ID, device=device)
         embeddings = embed_tokens(data_paths,
                                   model,
@@ -633,7 +634,7 @@ if __name__ == "__main__":
         # Run UMAP to reduce dimensionality to 3D
         print("Running UMAP for 3D visualization...")
         umap_3d = umap.UMAP(n_components=3,
-                            n_neighbors=15,
+                            n_neighbors=45,
                             min_dist=0.0,
                             metric="cosine",
                             random_state=42,
@@ -678,8 +679,8 @@ if __name__ == "__main__":
         # Set desired number of workers for the PDF generation
         num_workers = 8
 
-        # generate_alignment_report(data_paths,
-        #                           SELECTED_MODEL_ID,
-        #                           report_output_filename,
-        #                           max_workers=num_workers,
-        #                           debug=False)
+        generate_alignment_report(data_paths,
+                                  SELECTED_MODEL_ID,
+                                  report_output_filename,
+                                  max_workers=num_workers,
+                                  debug=False)
