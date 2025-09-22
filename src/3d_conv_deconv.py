@@ -5,7 +5,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 
-# Assuming the dataset script is in dataset/dataset.py
 from dataset.dataset import get_jomon_kaen_dataset
 
 

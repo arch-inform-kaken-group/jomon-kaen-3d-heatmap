@@ -9,7 +9,7 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dataset.dataset import get_jomon_kaen_dataset
+from src.dataset.dataset import get_jomon_kaen_dataset
 
 
 # 1. MODEL DEFINITION (The nn.Module remains the same)
