@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 import matplotlib
-matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import japanize_matplotlib
@@ -247,8 +247,8 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
 
 
 if __name__ == "__main__":
-    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
-    root = "./src/jomon_kaen_dataset/japan"
+    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    # root = "./src/jomon_kaen_dataset/japan"
     
     SELECTED_MODEL_ID = 'MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7'
 
@@ -273,7 +273,7 @@ if __name__ == "__main__":
         
         print(f"{len(transcripts)}件の書き起こしを分類中 (この処理には時間がかかる場合があります)...")
         # The pipeline returns a list of dictionaries. We process them in a loop.
-        results_generator = (classifier(transcript, TARGET_LABELS_JP, multi_label=True) for transcript in transcripts)
+        results_generator = (classifier(transcript, TARGET_LABELS_JP, multi_label=False) for transcript in transcripts)
         all_results = list(tqdm(results_generator, total=len(transcripts)))
 
         # Convert the list of dictionary results into a single score matrix
@@ -333,6 +333,9 @@ if __name__ == "__main__":
         plot_output_filename = f"cluster_plot_3d_{model_name_for_file}_zeroshot.png"
         plt.savefig(plot_output_filename)
         print(f"\n3Dプロットを'{plot_output_filename}'に保存しました。")
+        plt.show()
+
+        matplotlib.use('Agg')
 
         # Step 7: Generate the final PDF report
         report_output_filename = f"Cross-Ecoder_JP_Alignment_Report_{model_name_for_file}_zeroshot.pdf"
