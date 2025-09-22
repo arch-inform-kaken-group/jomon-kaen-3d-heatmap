@@ -8,8 +8,7 @@ def main():
     data, errors = filter_data_on_condition(
         # root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
         # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        # root="./src/jomon_kaen_dataset/japan",
-        root="./src/jomon_kaen_dataset/temp",
+        root="./src/jomon_kaen_dataset/japan",
         # root="./src/archive/temp",
         pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,

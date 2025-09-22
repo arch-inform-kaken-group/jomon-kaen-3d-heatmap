@@ -243,7 +243,7 @@ def embed_tokens(data_paths, model, model_id, mode='fulltext'):
     for data_path in tqdm(data_paths, desc='PREPARING FOR EMBEDDING'):
         if mode == 'fulltext':
             with open(data_path['TRANSCRIPT'], 'r', encoding='utf-8') as f:
-                content = f.read()
+                content = f.read().replace('\n', '').replace('　', '').replace(' ', '')
         elif mode == 'tokens':
             content = " ".join(data_path['TOKENS'])
 
@@ -488,7 +488,7 @@ def generate_alignment_report(data_paths,
                   styles['TitleStyle']))
     story.append(
         Paragraph(
-            f"Analysis generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')} in Petaling Jaya",
+            f"Analysis generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             styles['BodyStyle']))
     story.append(
         Paragraph(f"Embedding Model Used: {model_id}", styles['BodyStyle']))
@@ -515,7 +515,7 @@ def generate_alignment_report(data_paths,
         if path not in transcript_cache:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    transcript_cache[path] = f.read().replace('\n', '<br/>')
+                    transcript_cache[path] = f.read().replace('\n', '').replace('　', '').replace(' ', '')
             except FileNotFoundError:
                 transcript_cache[
                     path] = "<i>Error: Transcript file not found.</i>"
@@ -562,18 +562,18 @@ def generate_alignment_report(data_paths,
 
 
 if __name__ == "__main__":
-    # root = "./src/jomon_kaen_dataset/japan"
-    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    root = "./src/jomon_kaen_dataset/japan"
+    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
 
     # --- MODEL SELECTION ---
     # 1. Lightweight, recent model from Google.
     # SELECTED_MODEL_ID = 'google/embeddinggemma-300m'
 
     # SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-0.6B'
-    SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-8B'
+    # SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-8B'
 
     # 3. Popular, well-balanced multilingual model.
-    # SELECTED_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
+    SELECTED_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 
     if not os.path.exists(root):
         print(f"Error: The directory '{root}' does not exist.")
@@ -589,8 +589,8 @@ if __name__ == "__main__":
 
         # Step 3: Load model and generate transcript embeddings
         print(f"\nLoading Sentence Transformer model: {SELECTED_MODEL_ID}...")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        # device = "cpu"
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cpu"
         model = SentenceTransformer(SELECTED_MODEL_ID, device=device)
         embeddings = embed_tokens(data_paths,
                                   model,
@@ -663,7 +663,7 @@ if __name__ == "__main__":
         plt.legend(loc="best", fontsize=12)
         title_text = f"類似度クエリに基づく3Dクラスタリング\nModel: {SELECTED_MODEL_ID}"
         plt.title(title_text, fontsize=16)
-        plt.tight_layout()
+        plt.tight_layout(pad=2)
 
         model_name_for_file = SELECTED_MODEL_ID.replace('/', '_')
         plot_output_filename = f"cluster_plot_3d_{model_name_for_file}.png"
@@ -674,7 +674,7 @@ if __name__ == "__main__":
 
         # --- Step 7: Generate the final PDF report ---
         matplotlib.use('Agg')
-        report_output_filename = f"Alignment_Report_{model_name_for_file}.pdf"
+        report_output_filename = f"Bi-Ecoder_JP_Alignment_Report_{model_name_for_file}.pdf"
 
         # Set desired number of workers for the PDF generation
         num_workers = 8

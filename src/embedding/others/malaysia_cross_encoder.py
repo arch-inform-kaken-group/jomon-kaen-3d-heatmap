@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 import matplotlib
-matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
@@ -36,11 +36,11 @@ try:
     CHINESE_FONT = 'ChineseFont'
     CHINESE_FONT_BOLD = 'ChineseFont-Bold'
     print(
-        f"Successfully registered Japanese font '{font_path}' for PDF generation."
+        f"Successfully registered Chinese font '{font_path}' for PDF generation."
     )
 except Exception as e:
     print(
-        f"Error registering font: {e}. Japanese text in PDF may not render correctly."
+        f"Error registering font: {e}. Chinese text in PDF may not render correctly."
     )
     CHINESE_FONT = 'Helvetica'
     CHINESE_FONT_BOLD = 'Helvetica-Bold'
@@ -229,7 +229,7 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
         if path not in transcript_cache:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    transcript_cache[path] = f.read().replace('\n', '<br/>')
+                    transcript_cache[path] = f.read().replace('\n', ' ')
             except FileNotFoundError:
                 transcript_cache[path] = "<i>Error: Transcript file not found.</i>"
     
@@ -266,7 +266,8 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
 
 
 if __name__ == "__main__":
-    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia"
+    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia"
+    root = "./src/jomon_kaen_dataset/malaysia"
     
     # --- MODEL SELECTION: Using a Cross-Encoder for higher accuracy ---
     # This model is small but very effective for classification tasks.
@@ -281,7 +282,8 @@ if __name__ == "__main__":
 
         # --- NEW METHOD: Step 3 & 4 using Cross-Encoder ---
         print(f"\nLoading Cross-Encoder model: {SELECTED_MODEL_ID}...")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cpu"
         # The CrossEncoder class is used instead of SentenceTransformer
         model = CrossEncoder(SELECTED_MODEL_ID, device=device)
 
@@ -290,7 +292,7 @@ if __name__ == "__main__":
         transcripts = []
         for data_path in data_paths:
             with open(data_path['TRANSCRIPT'], 'r', encoding='utf-8') as f:
-                transcripts.append(f.read())
+                transcripts.append(f.read().replace('\n', ' '))
         
         sentence_pairs = []
         for transcript in transcripts:
@@ -325,7 +327,7 @@ if __name__ == "__main__":
         # The plotting part requires embeddings for the 3D plot. We can generate them quickly
         # with a simple bi-encoder just for visualization purposes.
         print("\n--- Generating Embeddings for 3D Visualization ONLY ---")
-        vis_model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+        vis_model = SentenceTransformer('sentence-transformers/all-MiniLM-L12-v2', device=device)
         embeddings_for_visualization = vis_model.encode(transcripts, show_progress_bar=True)
         
         print("\n--- Generating 3D Clustering Visualization ---")
@@ -333,7 +335,7 @@ if __name__ == "__main__":
         cluster_labels = np.argmax(scores_matrix, axis=1) 
         
         print("Running UMAP for 3D visualization...")
-        umap_3d = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.0,
+        umap_3d = umap.UMAP(n_components=3, n_neighbors=45, min_dist=0.0,
                             metric="cosine", random_state=42, n_jobs=1).fit_transform(embeddings_for_visualization)
         
         print("Generating 3D plot...")
@@ -352,12 +354,15 @@ if __name__ == "__main__":
         plt.title(title_text, fontsize=16)
         plt.tight_layout()
         model_name_for_file = SELECTED_MODEL_ID.replace('/', '_')
-        plot_output_filename = f"cluster_plot_3d_{model_name_for_file}_cross_encoder.png"
+        plot_output_filename = f"cluster_plot_3d_{model_name_for_file}_zeroshot.png"
         plt.savefig(plot_output_filename)
         print(f"\n3D Plot successfully saved to '{plot_output_filename}'")
+        plt.show()
+
+        matplotlib.use('Agg')
 
         # Step 7: Generate the final PDF report
-        report_output_filename = f"Alignment_Report_{model_name_for_file}_cross_encoder.pdf"
+        report_output_filename = f"Cross-Encoder_MY_Alignment_Report_{model_name_for_file}_zeroshot.pdf"
         num_workers = 8
         generate_alignment_report(data_paths,
                                   SELECTED_MODEL_ID,

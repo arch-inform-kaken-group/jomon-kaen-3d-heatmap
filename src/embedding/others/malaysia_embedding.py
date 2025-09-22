@@ -42,11 +42,11 @@ try:
     CHINESE_FONT = 'ChineseFont'
     CHINESE_FONT_BOLD = 'ChineseFont-Bold'
     print(
-        f"Successfully registered Japanese font '{font_path}' for PDF generation."
+        f"Successfully registered Chinese font '{font_path}' for PDF generation."
     )
 except Exception as e:
     print(
-        f"Error registering font: {e}. Japanese text in PDF may not render correctly."
+        f"Error registering font: {e}. Chinese text in PDF may not render correctly."
     )
     CHINESE_FONT = 'Helvetica'
     CHINESE_FONT_BOLD = 'Helvetica-Bold'
@@ -123,7 +123,7 @@ def embed_transcripts(data_paths, model, model_id):
     
     for data_path in tqdm(data_paths, desc='PREPARING TRANSCRIPTS FOR EMBEDDING'):
         with open(data_path['TRANSCRIPT'], 'r', encoding='utf-8') as f:
-            content = f.read()
+            content = f.read().replace('\n', ' ')
         
         if use_prefix:
             sentences.append("query: " + content)
@@ -296,7 +296,7 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
         if path not in transcript_cache:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    transcript_cache[path] = f.read().replace('\n', '<br/>')
+                    transcript_cache[path] = f.read().replace('\n', ' ')
             except FileNotFoundError:
                 transcript_cache[path] = "<i>Error: Transcript file not found.</i>"
     
@@ -334,17 +334,17 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
 
 if __name__ == "__main__":
     # Set the root directory for your dataset
-    # root = "./src/jomon_kaen_dataset/malaysia" 
-    root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia"
+    root = "./src/jomon_kaen_dataset/malaysia" 
+    # root = r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia"
 
     # --- MODEL SELECTION ---
     # 1. Lightweight, recent model from Google.
     # SELECTED_MODEL_ID = 'google/embeddinggemma-300m'
 
     # SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-0.6B'
-    SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-8B'
+    # SELECTED_MODEL_ID = 'Qwen/Qwen3-Embedding-8B'
 
-    # SELECTED_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
+    SELECTED_MODEL_ID = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 
     if not os.path.exists(root):
         print(f"Error: The data directory '{root}' does not exist. Please update the 'root' variable.")
@@ -359,8 +359,8 @@ if __name__ == "__main__":
 
         # Step 3: Load model and generate transcript embeddings
         print(f"\nLoading Sentence Transformer model: {SELECTED_MODEL_ID}...")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        # device = "cpu"
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cpu"
         print(f"Using device: {device}")
         model = SentenceTransformer(SELECTED_MODEL_ID, device=device)
         embeddings = embed_transcripts(data_paths, model, SELECTED_MODEL_ID)
@@ -396,7 +396,7 @@ if __name__ == "__main__":
         cluster_labels = np.argmax(similarities, axis=1)
 
         print("Running UMAP for 3D visualization...")
-        umap_3d = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.0,
+        umap_3d = umap.UMAP(n_components=3, n_neighbors=45, min_dist=0.0,
                             metric="cosine", random_state=42, n_jobs=1).fit_transform(embeddings)
 
         print("Generating 3D plot...")
@@ -425,11 +425,11 @@ if __name__ == "__main__":
         plt.show()
         
         # --- Step 7: Generate the final PDF report ---
-        report_output_filename = f"Alignment_Report_{model_name_for_file}.pdf"
+        report_output_filename = f"Bi-Ecoder_MY_Alignment_Report_{model_name_for_file}.pdf"
         num_workers = min(8, os.cpu_count() or 1)
         
-        # generate_alignment_report(data_paths, 
-        #                           SELECTED_MODEL_ID,
-        #                           report_output_filename,
-        #                           max_workers=num_workers,
-        #                           debug=False)
+        generate_alignment_report(data_paths, 
+                                  SELECTED_MODEL_ID,
+                                  report_output_filename,
+                                  max_workers=num_workers,
+                                  debug=False)

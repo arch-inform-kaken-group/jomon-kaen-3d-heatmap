@@ -219,7 +219,7 @@ def generate_alignment_report(data_paths, model_id, output_filename, max_workers
         if path not in transcript_cache:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    transcript_cache[path] = f.read().replace('\n', '<br/>')
+                    transcript_cache[path] = f.read().replace('\n', '').replace('　', '').replace(' ', '')
             except FileNotFoundError:
                 transcript_cache[path] = "<i>エラー: 書き起こしファイルが見つかりません。</i>"
     data_by_pottery = defaultdict(list)
@@ -262,17 +262,18 @@ if __name__ == "__main__":
         # --- Step 3 & 4 using Zero-Shot-Classification Pipeline ---
         print(f"\nZero-Shotパイプラインとモデルを読み込み中: {SELECTED_MODEL_ID}...")
         device_num = 0 if torch.cuda.is_available() else -1
+        # device_num = -1
         classifier = pipeline("zero-shot-classification", model=SELECTED_MODEL_ID, device=device_num)
 
         print("分類用の書き起こしを準備中...")
         transcripts = []
         for data_path in data_paths:
             with open(data_path['TRANSCRIPT'], 'r', encoding='utf-8') as f:
-                transcripts.append(neologdn.normalize(f.read()))
+                transcripts.append(neologdn.normalize(f.read().replace('\n', '').replace('　', '').replace(' ', '')))
         
         print(f"{len(transcripts)}件の書き起こしを分類中 (この処理には時間がかかる場合があります)...")
         # The pipeline returns a list of dictionaries. We process them in a loop.
-        results_generator = (classifier(transcript, TARGET_LABELS_JP, multi_label=False) for transcript in transcripts)
+        results_generator = (classifier(transcript, TARGET_LABELS_JP, multi_label=True) for transcript in transcripts)
         all_results = list(tqdm(results_generator, total=len(transcripts)))
 
         # Convert the list of dictionary results into a single score matrix
@@ -310,7 +311,7 @@ if __name__ == "__main__":
         cluster_labels = np.argmax(scores_matrix, axis=1) 
         
         print("3D可視化のためにUMAPを実行中...")
-        umap_3d = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.0,
+        umap_3d = umap.UMAP(n_components=3, n_neighbors=45, min_dist=0.0,
                             metric="cosine", random_state=42, n_jobs=1).fit_transform(embeddings_for_visualization)
         
         print("3Dプロットを生成中...")
@@ -329,12 +330,12 @@ if __name__ == "__main__":
         plt.title(title_text, fontsize=16)
         plt.tight_layout()
         model_name_for_file = SELECTED_MODEL_ID.replace('/', '_')
-        plot_output_filename = f"cluster_plot_3d_{model_name_for_file}_jp_zeroshot.png"
+        plot_output_filename = f"cluster_plot_3d_{model_name_for_file}_zeroshot.png"
         plt.savefig(plot_output_filename)
         print(f"\n3Dプロットを'{plot_output_filename}'に保存しました。")
 
         # Step 7: Generate the final PDF report
-        report_output_filename = f"Alignment_Report_{model_name_for_file}_jp_zeroshot.pdf"
+        report_output_filename = f"Cross-Ecoder_JP_Alignment_Report_{model_name_for_file}_zeroshot.pdf"
         num_workers = 8
         generate_alignment_report(data_paths,
                                   SELECTED_MODEL_ID,
