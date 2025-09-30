@@ -576,6 +576,8 @@ def filter_data_on_condition(
 
     n_valid_data = len(data)
 
+    # print(sorted([cnt for _, cnt in limit_track.items()]))
+
     # Filtering based on pointcloud, qa size and voice quality
     print("\nFILTERING")
     if from_tracking_sheet:
