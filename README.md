@@ -74,7 +74,7 @@ git clone --depth 1 https://github.com/luhouyang/3d-heatmap-generation.git
 
 Modify the parameters for different results in the `filter_data_on_condition` function
 
-**Example Using `split`**
+### Example Using `split`
 
 ```python
 train_dataset, test_dataset = get_jomon_kaen_dataset(
@@ -91,7 +91,7 @@ train_dataset, test_dataset = get_jomon_kaen_dataset(
     )
 ```
 
-**Example using Pottery ID to group**
+### Example using Pottery ID to group
 
 ```python
 train_dataset, test_dataset = get_jomon_kaen_dataset(
@@ -146,4 +146,114 @@ generate_voxel (bool): Generate voxel data. Default: True,
 generate_mesh (bool): Generate mesh data. Default: True,
 generate_pointcloud (bool): Generate point cloud data. Default: True,
 generate_transcript (bool): Generate transcript data. Default: True,
+```
+
+## Analysis
+
+```bash
+cd src/analysis
+```
+
+### Heatmap Comparison
+
+This command runs the **gaze heatmap comparison** between the Japanese and Malaysian datasets. It uses the default directory paths and parameters.
+
+```bash
+python analysis.py heatmap
+```
+
+To specify a different output directory:
+
+```bash
+python analysis.py heatmap --output_dir ./results/my_heatmap_analysis
+```
+
+-----
+
+### Transcript Emotion Clustering
+
+This command runs **transcript-based clustering** on the **Japanese** dataset. You must provide the data directory and a suitable multilingual model from Hugging Face.
+
+```bash
+python analysis.py transcript_cluster japan --data_dir ./src/jomon_kaen_dataset/japan --model_id MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
+```
+
+Here's the equivalent command for the **Malaysian** (English) dataset, using a model optimized for English.
+
+```bash
+python analysis.py transcript_cluster malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --model_id cross-encoder/nli-deberta-v3-large
+```
+
+-----
+
+### Word Frequency Analysis
+
+This command generates word clouds, frequency charts, and a transcript PDF for the **Japanese** dataset. You must provide a path to a Japanese font file.
+
+```bash
+python analysis.py word_freq japan --data_dir ./src/jomon_kaen_dataset/japan --font_path "C:/Windows/Fonts/msgothic.ttc"
+```
+
+And for the **Malaysian** (English) dataset. A standard system font like Arial works well here.
+
+```bash
+python analysis.py word_freq malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --font_path "C:/Windows/Fonts/simhei.ttf"
+```
+
+-----
+
+### Voxel Count Analysis
+
+This command analyzes the `.ply` files in the default processed directory to **plot the voxel counts** for each pottery item.
+
+```bash
+python analysis.py voxels
+```
+
+-----
+
+### Label Embedding Visualization
+
+This command **visualizes the semantic relationships** between the Japanese and English emotion labels in 2D and 3D space.
+
+```bash
+python analysis.py label_viz
+```
+
+Here are the command-line examples for the newly added analyses.
+
+-----
+
+### QA Event Clustering
+
+This command clusters pottery based on the emotions recorded in the **QA events**. It generates PCA plots and 3D model collages for each cluster.
+
+For the **Japanese** dataset:
+
+```bash
+python analysis.py qa_cluster japan --data_dir ./src/jomon_kaen_dataset/japan
+```
+
+For the **Malaysian** dataset:
+
+```bash
+python analysis.py qa_cluster malaysia --data_dir ./src/jomon_kaen_dataset/malaysia
+```
+
+-----
+
+### QA vs. Transcript Alignment Report
+
+This command generates a detailed **PDF report** comparing the emotion distributions from QA events against the emotion distributions derived from classifying the full text of the transcripts.
+
+For the **Japanese** dataset:
+
+```bash
+python analysis.py qa_alignment japan --data_dir ./src/jomon_kaen_dataset/japan --model_id MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7 --font_path "C:/Windows/Fonts/msgothic.ttc"
+```
+
+For the **Malaysian** dataset:
+
+```bash
+python analysis.py qa_alignment malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --model_id cross-encoder/nli-deberta-v3-large --font_path "C:/Windows/Fonts/simhei.ttf"
 ```
