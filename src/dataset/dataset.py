@@ -233,7 +233,9 @@ def get_jomon_kaen_dataset(
 
     return train_dataset, test_dataset
 
-
+# TODO: Cache pottery data
+# TODO: Load & tokenize transcripts
+# TODO: Allow for more than 1 sampling techniques
 class PreprocessJomonKaenDataset(Dataset):
 
     def __init__(
