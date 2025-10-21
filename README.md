@@ -1,6 +1,8 @@
 # 3D Heatmap Generation
 
-**[FULL ANALYSIS VISUALIZATIONS](https://drive.google.com/file/d/1kiGFp70P4F-uNYrngHd1EO4dQ7gHZOr4/view?usp=sharing)** | **[ANALYSIS REPORT (*Subject to updates*)](https://drive.google.com/file/d/1ELGBItzYAaonFbO6x9OT3DY3TTNPWBfq/view?usp=sharing)**
+- Analysis: **[FULL ANALYSIS VISUALIZATIONS](https://drive.google.com/file/d/1kiGFp70P4F-uNYrngHd1EO4dQ7gHZOr4/view?usp=sharing)** | **[ANALYSIS REPORT (*Subject to updates*)](https://drive.google.com/file/d/1ELGBItzYAaonFbO6x9OT3DY3TTNPWBfq/view?usp=sharing)**
+
+- Generative Model: **[PRELIMINARY REPORT ON MODEL DEVELOPMENT](https://drive.google.com/file/d/1kMOmDZE0qLVqI-0uwtS5XCh7JABxCtfI/view?usp=sharing)** | [FULL ARCHITECTURE REPORT (*To be added*)]()
 
 **Process experiment data from**
 
