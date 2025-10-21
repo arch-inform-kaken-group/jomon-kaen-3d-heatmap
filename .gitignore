@@ -2,6 +2,7 @@ archive
 checkpoints
 lightning_logs
 outputs
+feature_emotion_analysis
 __pycache__
 
 .env
@@ -13,7 +14,7 @@ pottery
 processed
 
 *.pth
-*.csv
+# *.csv
 *.ply
 *.json
 *.png
