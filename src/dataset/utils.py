@@ -254,6 +254,25 @@ def increment_error(key, path, errors: dict):
 
     return errors
 
+def check_file_not_empty(file_path, min_size_bytes=10):
+    if not os.path.exists(file_path):
+        return False
+    
+    try:
+        # Check file size
+        file_size = os.path.getsize(file_path)
+        if file_size < min_size_bytes:
+            return False
+        
+        # For text files, also check if content is not just whitespace
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            return len(content) > 0
+        
+        return True
+    except Exception as e:
+        print(f"Error checking file {file_path}: {e}")
+        return False
 
 def save_geometry_threaded(save_path, geometry, error_queue):
 
@@ -545,12 +564,16 @@ def filter_data_on_condition(
                     voice_error = True
                     errors = increment_error('Voice path does not exist', str(voice_path), errors)
 
-                if Path(transcript_path).exists():
+                # Check if transcript exists AND is not empty
+                if check_file_not_empty(transcript_path, min_size_bytes=10):
                     data_paths[final_transcript_filename] = str(transcript_path)
                     data_paths['TRANSCRIPT'] = str(output_final_transcript)
                 else:
                     voice_error = True
-                    errors = increment_error('Transcript path does not exist', str(voice_path), errors)
+                    if Path(transcript_path).exists():
+                        errors = increment_error('Transcript file is empty', str(transcript_path), errors)
+                    else:
+                        errors = increment_error('Transcript path does not exist', str(transcript_path), errors)
 
                 pottery_dogu_path = pottery_id_to_path[p]
                 if (hm_error):
@@ -713,10 +736,36 @@ def filter_data_on_condition(
             if generate_qna and (mode==0 or mode==1):
                 # QNA combined point cloud
                 # QNA segmented mesh
-                if use_cache and (Path(data_paths[qa_pc_filename]).exists() or not generate_pointcloud) \
-                    and (Path(data_paths[segmented_meshes_dirname]).exists()) \
-                    and (Path(data_paths[combined_mesh_filename]).exists() or not generate_mesh) \
-                    and not generate_voxel:
+                # Pre-check for emotions present in the QA file for this specific sample
+                present_emotions = []
+                if os.path.exists(data_paths['qa']):
+                    try:
+                        qa_df = pd.read_csv(data_paths['qa'])
+                        if 'answer' in qa_df.columns:
+                            present_emotions = qa_df['answer'].unique().tolist()
+                    except Exception:
+                        pass # If file is empty or corrupt, present_emotions remains empty
+                data_paths['present_emotions'] = present_emotions
+
+                # Check if all required emotion voxel files already exist for this sample
+                all_emotion_voxels_exist = True
+                if generate_voxel and use_cache:
+                    if not present_emotions:
+                        # If there are no emotions in the QA file, this check is trivially true
+                        all_emotion_voxels_exist = True
+                    else:
+                        for emotion_name in present_emotions:
+                            emotion_file_path = Path(data_paths[segmented_meshes_dirname]) / f"{DEFAULT_QNA_ANSWER_COLOR_MAP[emotion_name]['name']}_voxel.ply"
+                            if not emotion_file_path.exists():
+                                all_emotion_voxels_exist = False
+                                break
+                
+                # Updated caching logic
+                if use_cache and \
+                   (Path(data_paths[qa_pc_filename]).exists() or not generate_pointcloud) and \
+                   (Path(data_paths[segmented_meshes_dirname]).exists()) and \
+                   (Path(data_paths[combined_mesh_filename]).exists() or not generate_mesh) and \
+                   (all_emotion_voxels_exist or not generate_voxel):
                     pass
                 else:
                     if qna_marker:
