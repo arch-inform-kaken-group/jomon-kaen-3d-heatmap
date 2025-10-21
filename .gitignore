@@ -14,7 +14,7 @@ pottery
 processed
 
 *.pth
-# *.csv
+*.csv
 *.ply
 *.json
 *.png
