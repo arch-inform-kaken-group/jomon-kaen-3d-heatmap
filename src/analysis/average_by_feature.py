@@ -476,6 +476,144 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
     )
 
 
+def compute_cosine_similarities_with_interesting(
+    combined_df_japan: pd.DataFrame,
+    combined_df_malaysia: pd.DataFrame,
+    features_csv: str,
+    output_csv: str = "cosine_similarities_with_interesting.csv"
+):
+    """
+    Compute cosine similarities between Japan and Malaysia emotion profiles 
+    INCLUDING the 'Interesting' emotion, for each binary pottery feature.
+    
+    Args:
+        combined_df_japan: DataFrame with Japanese responses
+        combined_df_malaysia: DataFrame with Malaysian responses
+        features_csv: Path to features CSV
+        output_csv: Output file to save results
+    """
+    import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    # Load features
+    features_df = pd.read_csv(features_csv)
+    features_df['pottery_id'] = features_df['CODE'].str.replace('.ply', '', regex=False)
+
+    # Define emotion columns (FULL 5 emotions, excluding NO RESPONSE)
+    emotion_cols_en = [
+        "Interesting and attentional shape",
+        "Beautiful and artistic",
+        "Strange and incomprehensible",
+        "Creepy / unsettling / scary",
+        "Feel nothing"
+    ]
+    short_to_long_en = {v: k for k, v in SHORT_LABELS_EN.items()}
+    emotion_cols_short = ["Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"]
+    emotion_cols_full = [short_to_long_en[s] for s in emotion_cols_short]
+
+    # Map Japanese answers to English-equivalent short labels
+    def map_jp_to_short(answer):
+        mapping = {
+            "面白い・気になる形だ": "Interesting",
+            "美しい・芸術的だ": "Beautiful",
+            "不思議・意味不明": "Strange",
+            "不気味・不安・怖い": "Scary",
+            "何も感じない": "Feel nothing"
+        }
+        return mapping.get(answer.strip(), None)
+
+    # Process Japan
+    combined_df_japan['short_answer'] = combined_df_japan['answer'].apply(map_jp_to_short)
+    combined_df_japan = combined_df_japan.dropna(subset=['short_answer'])
+
+    # Process Malaysia (already uses English)
+    combined_df_malaysia['short_answer'] = combined_df_malaysia['answer'].map(SHORT_LABELS_EN)
+    combined_df_malaysia = combined_df_malaysia.dropna(subset=['short_answer'])
+
+    # Compute mean emotion vectors per pottery (session-normalized)
+    def get_mean_emotions_per_pottery(df):
+        session_counts = pd.crosstab(
+            [df['pottery_id'], df['session_id']],
+            df['short_answer']
+        )
+        session_pct = session_counts.div(session_counts.sum(axis=1), axis=0) * 100
+        pottery_means = session_pct.groupby('pottery_id').mean()
+        # Ensure all 5 emotions are present (fill missing with 0)
+        for col in emotion_cols_short:
+            if col not in pottery_means.columns:
+                pottery_means[col] = 0.0
+        return pottery_means[emotion_cols_short].fillna(0.0)
+
+    japan_means = get_mean_emotions_per_pottery(combined_df_japan)
+    malaysia_means = get_mean_emotions_per_pottery(combined_df_malaysia)
+
+    # Merge with features
+    japan_merged = features_df[['pottery_id'] + [c for c in features_df.columns if c.startswith('HAS_') or c.startswith('NO_')]].merge(
+        japan_means, on='pottery_id', how='inner'
+    )
+    malaysia_merged = features_df[['pottery_id'] + [c for c in features_df.columns if c.startswith('HAS_') or c.startswith('NO_')]].merge(
+        malaysia_means, on='pottery_id', how='inner'
+    )
+
+    # Identify binary feature columns
+    feature_cols = [col for col in features_df.columns if col.startswith('HAS_')]
+
+    results = []
+    for feature in feature_cols:
+        # Japan: group by feature = 1 and = 0
+        j_has = japan_merged[japan_merged[feature] == 1][emotion_cols_short]
+        j_no = japan_merged[japan_merged[feature] == 0][emotion_cols_short]
+        
+        m_has = malaysia_merged[malaysia_merged[feature] == 1][emotion_cols_short]
+        m_no = malaysia_merged[malaysia_merged[feature] == 0][emotion_cols_short]
+
+        # Compute mean vectors
+        j_has_vec = j_has.mean().values if len(j_has) > 0 else np.zeros(5)
+        j_no_vec = j_no.mean().values if len(j_no) > 0 else np.zeros(5)
+        m_has_vec = m_has.mean().values if len(m_has) > 0 else np.zeros(5)
+        m_no_vec = m_no.mean().values if len(m_no) > 0 else np.zeros(5)
+
+        # Cosine similarity (handle zero vectors)
+        def safe_cosine(a, b):
+            if np.all(a == 0) or np.all(b == 0):
+                return np.nan
+            return cosine_similarity(a.reshape(1, -1), b.reshape(1, -1))[0, 0]
+
+        sim_has = safe_cosine(j_has_vec, m_has_vec)
+        sim_no = safe_cosine(j_no_vec, m_no_vec)
+
+        results.append({
+            'Feature': feature,
+            'Japan_Has_Vector': j_has_vec.round(2),
+            'Malaysia_Has_Vector': m_has_vec.round(2),
+            'Cosine_Sim_Has': round(sim_has, 4) if not np.isnan(sim_has) else np.nan,
+            'Japan_No_Vector': j_no_vec.round(2),
+            'Malaysia_No_Vector': m_no_vec.round(2),
+            'Cosine_Sim_No': round(sim_no, 4) if not np.isnan(sim_no) else np.nan,
+        })
+
+    results_df = pd.DataFrame(results)
+    
+    # Save full results
+    results_df.to_csv(output_csv, index=False)
+    print(f"\nCosine similarities (with 'Interesting') saved to: {output_csv}")
+    
+    # Print clean summary table
+    print("\n" + "="*80)
+    print("COSINE SIMILARITY (INCLUDING 'INTERESTING') BY FEATURE")
+    print("="*80)
+    print(f"{'Feature':<25} {'Has Feature':<12} {'No Feature':<12}")
+    print("-"*80)
+    for _, row in results_df.iterrows():
+        feat = row['Feature'].replace('HAS_', '').replace('_', ' ').title()
+        has_sim = f"{row['Cosine_Sim_Has']:.4f}" if pd.notna(row['Cosine_Sim_Has']) else "N/A"
+        no_sim = f"{row['Cosine_Sim_No']:.4f}" if pd.notna(row['Cosine_Sim_No']) else "N/A"
+        print(f"{feat:<25} {has_sim:<12} {no_sim:<12}")
+    print("="*80)
+
+    return results_df
+
+
 # Main Execution
 if __name__ == "__main__":
     # === USER CONTROLS ===
@@ -548,3 +686,23 @@ if __name__ == "__main__":
         print(
             "Please ensure all directories and the features CSV are set up correctly."
         )
+
+    # try:
+    #     # Load both datasets
+    #     DATASET_ROOT_JAPAN = "./src/jomon_kaen_dataset/japan"
+    #     DATASET_ROOT_MALAYSIA = "./src/jomon_kaen_dataset/malaysia"
+        
+    #     print("\nLoading Japan dataset for cross-cultural comparison...")
+    #     df_japan = load_combined_qna_data(DATASET_ROOT_JAPAN, POTTERY_MODELS_DIR)
+    #     print("Loading Malaysia dataset...")
+    #     df_malaysia = load_combined_qna_data(DATASET_ROOT_MALAYSIA, POTTERY_MODELS_DIR)
+
+    #     if not df_japan.empty and not df_malaysia.empty:
+    #         print("\nComputing cosine similarities INCLUDING 'Interesting' emotion...")
+    #         sim_results = compute_cosine_similarities_with_interesting(
+    #             df_japan, df_malaysia, FEATURES_CSV
+    #         )
+    #     else:
+    #         print("Skipping cosine similarity (with Interesting) due to missing data.")
+    # except Exception as e:
+    #     print(f"Error during extended cosine similarity computation: {e}")
