@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
-# --- Dictionaries and Constants ---
+# Dictionaries and Constants
 ASSIGNED_NUMBERS_DICT = {
     'AS0001': '1',
     'FH0008': '2',
@@ -150,7 +150,7 @@ SHORT_LABELS_JP = {
 }
 
 
-# --- Data Loading Functions ---
+# Data Loading Functions
 def find_data_paths_detailed(root: str,
                              pottery_path_str: str,
                              limit: int = 1000) -> list:
@@ -477,7 +477,7 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
     )
 
 
-# --- Main Execution ---
+# Main Execution
 if __name__ == "__main__":
     # === USER CONTROLS ===
     SELECTED_LANGUAGE = 'malaysia'
