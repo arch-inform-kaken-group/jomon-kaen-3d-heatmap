@@ -101,7 +101,6 @@ ASSIGNED_NUMBERS_DICT = {
     'SK0035': '91',
     'TK0020': '92',
     'UD0028': '93',
-    'rembak7': 'A'
 }
 
 # English/Malaysian Emotion Map
