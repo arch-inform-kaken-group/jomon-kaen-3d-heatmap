@@ -499,6 +499,130 @@ def create_jsd_bar_chart(df, summary_stats, output_base_dir):
     plt.close()
     return chart_filepath
 
+def create_individual_pottery_bar_charts(combined_df: pd.DataFrame, 
+                                        language: str = 'malaysia',
+                                        output_dir: str = 'output_data'):
+    """
+    Generates individual stacked percentage bar charts for each pottery item.
+    
+    Args:
+        combined_df: DataFrame containing the combined QA data
+        language: 'japan' or 'malaysia' to select appropriate labels
+        output_dir: Directory where charts will be saved
+    """
+    if combined_df.empty:
+        print("Combined DataFrame is empty. No bar charts generated.")
+        return
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Select language-specific settings
+    emotion_map = EMOTION_MAPS[language]
+    emotion_colors = emotion_map['colors']
+    short_label_map = emotion_map['full_map']
+    target_labels = emotion_map['target_labels']
+    
+    # Map colors to short labels
+    short_label_color_map = {
+        short_label_map[k]: v for k, v in emotion_colors.items()
+    }
+    
+    print("\nGenerating individual stacked percentage bar charts...")
+    
+    # Prepare data: map to short labels
+    df = combined_df.copy()
+    df['short_answer'] = df['answer'].str.strip().map(short_label_map)
+    
+    # Calculate viewing time percentages
+    session_durations = df.groupby(['pottery_id', 'session_id'])['timestamp'].agg(['min', 'max'])
+    session_durations['total_duration'] = (session_durations['max'] - session_durations['min']).clip(upper=60)
+    
+    # Calculate duration blocks
+    df['time_diff'] = df.groupby(['pottery_id', 'session_id'])['timestamp'].diff()
+    emotion_changed = df['short_answer'] != df.groupby(['pottery_id', 'session_id'])['short_answer'].shift()
+    time_gap_exceeded = df['time_diff'] > 0.05
+    df['block_id'] = (emotion_changed | time_gap_exceeded).cumsum()
+    
+    block_durations = df.groupby(['pottery_id', 'session_id', 'block_id']).agg(
+        start_time=('timestamp', 'min'),
+        end_time=('timestamp', 'max'),
+        answer=('short_answer', 'first')
+    ).reset_index()
+    block_durations['duration'] = block_durations['end_time'] - block_durations['start_time']
+    
+    # Calculate emotion durations per session
+    emotion_duration_per_session = block_durations.groupby(['pottery_id', 'session_id'])['duration'].sum()
+    session_summary = pd.merge(
+        session_durations,
+        emotion_duration_per_session.rename('emotion_duration'),
+        on=['pottery_id', 'session_id']
+    )
+    session_summary['NO RESPONSE'] = session_summary['total_duration'] - session_summary['emotion_duration']
+    
+    # Get total durations by emotion
+    total_emotion_durations = block_durations.groupby(['pottery_id', 'answer'])['duration'].sum().unstack(fill_value=0)
+    total_not_viewing = session_summary.groupby('pottery_id')['NO RESPONSE'].sum()
+    final_durations = pd.concat([total_emotion_durations, total_not_viewing], axis=1)
+    
+    # Calculate percentages
+    percentage_viewing_time_df = final_durations.div(final_durations.sum(axis=1), axis=0) * 100
+    
+    # Define the stacking order (excluding NO RESPONSE for individual charts)
+    plot_order = [label for label in target_labels if label in percentage_viewing_time_df.columns]
+    plot_colors = [short_label_color_map.get(label, '#CCCCCC') for label in plot_order]
+    
+    # Generate individual charts for each pottery
+    for pottery_id in tqdm(percentage_viewing_time_df.index, desc="Creating individual bar charts"):
+        pottery_df = percentage_viewing_time_df.loc[[pottery_id], plot_order]
+        
+        fig, ax = plt.subplots(figsize=(4, 6))
+        
+        pottery_df.plot(
+            kind='bar',
+            stacked=True,
+            ax=ax,
+            color=plot_colors,
+            width=0.7,
+            legend=False
+        )
+        
+        # Add value labels
+        for container in ax.containers:
+            labels = [f'{v:.1f}' if v > 0.1 else '' for v in container.datavalues]
+            ax.bar_label(container, labels=labels, label_type='center', 
+                        fontsize=8, color='black', weight='bold')
+        
+        # Formatting
+        title_text = f'Viewing Time Distribution: {pottery_id}'
+        if language == 'japan':
+            title_text = f'視線固定時間の分布: {pottery_id}'
+        elif language == 'malaysia':
+            title_text = f"Gaze Duration: {pottery_id}"
+        
+        ax.set_title(title_text, fontsize=12)
+        ax.set_ylabel('Percentage (%)' if language != 'japan' else '割合 (%)', fontsize=10)
+        ax.set_xlabel('')
+        ax.set_xticks([])
+        ax.set_ylim(0, 100)
+        ax.grid(axis='y', linestyle='--', alpha=0.6)
+        
+        # Create legend
+        legend_labels = plot_order
+        legend_handles = [mpatches.Patch(color=short_label_color_map[label]) for label in legend_labels]
+        legend_title = '感情クラス' if language == 'japan' else 'Emotion Class'
+        ax.legend(legend_handles, legend_labels, title=legend_title,
+                 bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        
+        plt.tight_layout(rect=[0, 0, 0.85, 1])
+        
+        # Save the chart
+        plot_filename = f"{pottery_id}_viewing_time_bar_chart.png"
+        plot_save_path = os.path.join(output_dir, plot_filename)
+        plt.savefig(plot_save_path, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+    
+    print(f"Generated {len(percentage_viewing_time_df)} individual bar charts in '{output_dir}'")
+
 def draw_ellipse(points, ax=None, **kwargs):
     """Draws a fitted ellipse around a set of points."""
     ax = ax or plt.gca()

@@ -174,6 +174,24 @@ python analysis.py heatmap --output_dir ./results/my_heatmap_analysis
 
 -----
 
+### QA Event Clustering
+
+This command clusters pottery based on the emotions recorded in the **QA events**. It generates PCA plots and 3D model collages for each cluster.
+
+For the **Japanese** dataset:
+
+```bash
+python analysis.py qa_cluster japan --data_dir ./src/jomon_kaen_dataset/japan
+```
+
+For the **Malaysian** dataset:
+
+```bash
+python analysis.py qa_cluster malaysia --data_dir ./src/jomon_kaen_dataset/malaysia
+```
+
+-----
+
 ### Transcript Emotion Clustering
 
 This command runs **transcript-based clustering** on the **Japanese** dataset. You must provide the data directory and a suitable multilingual model from Hugging Face.
@@ -186,6 +204,24 @@ Here's the equivalent command for the **Malaysian** (English) dataset, using a m
 
 ```bash
 python analysis.py transcript_cluster malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --model_id cross-encoder/nli-deberta-v3-large
+```
+
+-----
+
+### QA vs. Transcript Alignment Report
+
+This command generates a detailed **PDF report** comparing the emotion distributions from QA events against the emotion distributions derived from classifying the full text of the transcripts.
+
+For the **Japanese** dataset:
+
+```bash
+python analysis.py qa_alignment japan --data_dir ./src/jomon_kaen_dataset/japan --model_id MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7 --font_path "C:/Windows/Fonts/msgothic.ttc"
+```
+
+For the **Malaysian** dataset:
+
+```bash
+python analysis.py qa_alignment malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --model_id cross-encoder/nli-deberta-v3-large --font_path "C:/Windows/Fonts/simhei.ttf"
 ```
 
 -----
@@ -224,40 +260,98 @@ This command **visualizes the semantic relationships** between the Japanese and 
 python analysis.py label_viz
 ```
 
-Here are the command-line examples for the newly added analyses.
-
 -----
 
-### QA Event Clustering
+### Individual Pottery Bar Charts
 
-This command clusters pottery based on the emotions recorded in the **QA events**. It generates PCA plots and 3D model collages for each cluster.
+This command generates **individual stacked percentage bar charts** for each pottery item, showing the viewing time distribution across emotion categories. This is useful for creating presentation materials or detailed per-item analyses.
 
 For the **Japanese** dataset:
 
 ```bash
-python analysis.py qa_cluster japan --data_dir ./src/jomon_kaen_dataset/japan
+python analysis.py bar_charts japan --data_dir ./src/jomon_kaen_dataset/japan --output_dir ./pottery_charts_jp
 ```
 
 For the **Malaysian** dataset:
 
 ```bash
-python analysis.py qa_cluster malaysia --data_dir ./src/jomon_kaen_dataset/malaysia
+python analysis.py bar_charts malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --output_dir ./pottery_charts_my
+```
+
+**Optional Parameters:**
+- `--output_dir`: Directory where charts will be saved (default: `output_data`)
+- Charts are saved as `{pottery_id}_viewing_time_bar_chart.png`
+
+**Output:**
+- One stacked bar chart per pottery item
+- Shows percentage distribution of viewing time across emotions
+- Includes proper legends and color coding matching the emotion categories
+- Charts are sized for easy embedding in presentations (4x6 inches by default)
+
+-----
+
+## Python API Usage
+
+You can also use the bar chart generation function directly in your Python scripts:
+
+```python
+from helper import create_individual_pottery_bar_charts, load_combined_qna_data, EMOTION_MAPS
+
+# Load your data
+combined_df = load_combined_qna_data("./src/jomon_kaen_dataset/japan")
+
+# Add short label mapping
+language = 'japan'  # or 'malaysia'
+emotion_map = EMOTION_MAPS[language]['full_map']
+combined_df['short_answer'] = combined_df['answer'].str.strip().map(emotion_map)
+
+# Generate the bar charts
+create_individual_pottery_bar_charts(
+    combined_df=combined_df,
+    language=language,
+    output_dir='./my_charts'
+)
 ```
 
 -----
 
-### QA vs. Transcript Alignment Report
+## Helper Functions Reference
 
-This command generates a detailed **PDF report** comparing the emotion distributions from QA events against the emotion distributions derived from classifying the full text of the transcripts.
+The `helper.py` module now includes the following key functions:
 
-For the **Japanese** dataset:
+### Data Loading
+- `get_pottery_id_list()` - Returns formatted pottery IDs
+- `group_data_by_pottery()` - Groups pointcloud and model files
+- `load_transcripts()` - Loads transcript data
+- `load_combined_qna_data()` - Loads and combines QA data
+- `load_alignment_data()` - Loads QA and transcript pairs
 
-```bash
-python analysis.py qa_alignment japan --data_dir ./src/jomon_kaen_dataset/japan --model_id MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7 --font_path "C:/Windows/Fonts/msgothic.ttc"
-```
+### Visualization
+- `create_individual_pottery_bar_charts()` - **NEW** - Generates individual bar charts
+- `create_jsd_bar_chart()` - JSD comparison bar chart
+- `create_cluster_collage()` - 3D model collages
+- `draw_ellipse()` - Fitted ellipse drawing
+- `generate_word_cloud_and_bar_chart()` - Word frequency visualizations
 
-For the **Malaysian** dataset:
+### 3D Rendering
+- `render_glb_matplotlib()` - Renders 3D models
+- `render_glb_front_view()` - Front view rendering
+- `create_simple_pottery_image()` - Placeholder images
+- `save_colored_mesh()` - Saves colored meshes
 
-```bash
-python analysis.py qa_alignment malaysia --data_dir ./src/jomon_kaen_dataset/malaysia --model_id cross-encoder/nli-deberta-v3-large --font_path "C:/Windows/Fonts/simhei.ttf"
-```
+### Analysis
+- `calculate_jensen_shannon_distance()` - JSD calculation
+- `calculate_qa_emotion_percentages()` - Emotion distribution from QA
+
+### Report Generation
+- `generate_alignment_report()` - PDF alignment report
+- `generate_transcript_pdf()` - PDF transcript compilation
+
+-----
+
+## Notes
+
+- All visualization functions respect the language setting for proper Japanese/English labels
+- Bar charts use consistent color schemes matching the emotion categories
+- Charts are optimized for both screen display and print/presentation use
+- Progress bars (tqdm) provide feedback during batch processing
