@@ -372,6 +372,133 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
     print(f"Generated plot: {filename}")
 
 
+def compute_cosine_sim_pottery_vs_dogu(
+    df_japan: pd.DataFrame,
+    df_malaysia: pd.DataFrame,
+    language_jp: str = 'japan',
+    language_my: str = 'malaysia'
+):
+    """
+    Compute cosine similarities between Japan and Malaysia for:
+      - Pottery (assigned numbers 1–85)
+      - dogu (assigned numbers 86–93)
+    Both WITH and WITHOUT the 'Interesting' emotion.
+    """
+    import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    # --- Step 1: Map answers to short labels ---
+    def map_to_short_labels(df, lang):
+        if lang == 'japan':
+            jp_to_short = {
+                "面白い・気になる形だ": "Interesting",
+                "美しい・芸術的だ": "Beautiful",
+                "不思議・意味不明": "Strange",
+                "不気味・不安・怖い": "Scary",
+                "何も感じない": "Feel nothing"
+            }
+            df['short_answer'] = df['answer'].str.strip().map(jp_to_short)
+        else:  # malaysia
+            df['short_answer'] = df['answer'].str.strip().map(SHORT_LABELS_EN)
+        return df.dropna(subset=['short_answer'])
+
+    df_japan = map_to_short_labels(df_japan.copy(), 'japan')
+    df_malaysia = map_to_short_labels(df_malaysia.copy(), 'malaysia')
+
+    # --- Step 2: Assign Pottery/dogu type ---
+    def assign_artifact_type(df):
+        df['assigned_num_str'] = df['pottery_id'].str.split('(', expand=True)[1].str.replace(')', '')
+        df['assigned_num'] = pd.to_numeric(df['assigned_num_str'], errors='coerce')
+        df['Type'] = df['assigned_num'].apply(
+            lambda x: 'Pottery' if 1 <= x <= 85 else ('dogu' if 86 <= x <= 93 else 'Other')
+        )
+        return df[df['Type'].isin(['Pottery', 'dogu'])]
+
+    df_japan = assign_artifact_type(df_japan)
+    df_malaysia = assign_artifact_type(df_malaysia)
+
+    # --- Step 3: Get mean emotion vectors per (Country, Type) ---
+    emotion_order_full = ["Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"]
+    emotion_order_no_interest = ["Beautiful", "Strange", "Scary", "Feel nothing"]
+
+    def get_mean_vector(df, group_col, emotions):
+        session_counts = pd.crosstab(
+            [df[group_col], df['session_id']],
+            df['short_answer']
+        )
+        # Ensure all emotion columns exist
+        for e in emotions:
+            if e not in session_counts.columns:
+                session_counts[e] = 0
+        session_pct = session_counts[emotions].div(session_counts.sum(axis=1), axis=0) * 100
+        return session_pct.groupby(group_col).mean()
+
+    # Mean vectors: rows = ['Pottery', 'dogu'], cols = emotions
+    jp_full = get_mean_vector(df_japan, 'Type', emotion_order_full)
+    my_full = get_mean_vector(df_malaysia, 'Type', emotion_order_full)
+    jp_no_int = get_mean_vector(df_japan, 'Type', emotion_order_no_interest)
+    my_no_int = get_mean_vector(df_malaysia, 'Type', emotion_order_no_interest)
+
+    # --- Step 4: Compute cosine similarities ---
+    def safe_cosine(a, b):
+        a, b = np.array(a), np.array(b)
+        if np.all(a == 0) or np.all(b == 0):
+            return np.nan
+        return cosine_similarity(a.reshape(1, -1), b.reshape(1, -1))[0, 0]
+
+    results = {}
+    for artifact_type in ['Pottery', 'dogu']:
+        # With Interesting
+        vec_jp_full = jp_full.loc[artifact_type].values if artifact_type in jp_full.index else np.zeros(5)
+        vec_my_full = my_full.loc[artifact_type].values if artifact_type in my_full.index else np.zeros(5)
+        sim_full = safe_cosine(vec_jp_full, vec_my_full)
+
+        # Without Interesting
+        vec_jp_no = jp_no_int.loc[artifact_type].values if artifact_type in jp_no_int.index else np.zeros(4)
+        vec_my_no = my_no_int.loc[artifact_type].values if artifact_type in my_no_int.index else np.zeros(4)
+        sim_no = safe_cosine(vec_jp_no, vec_my_no)
+
+        results[artifact_type] = {
+            'With_Interesting': round(sim_full, 4) if not np.isnan(sim_full) else None,
+            'Without_Interesting': round(sim_no, 4) if not np.isnan(sim_no) else None,
+            'Japan_Vector_Full': np.round(vec_jp_full, 2).tolist(),
+            'Malaysia_Vector_Full': np.round(vec_my_full, 2).tolist(),
+            'Japan_Vector_NoInt': np.round(vec_jp_no, 2).tolist(),
+            'Malaysia_Vector_NoInt': np.round(vec_my_no, 2).tolist(),
+        }
+
+    # --- Step 5: Print and return results ---
+    print("\n" + "="*70)
+    print("COSINE SIMILARITY: JAPAN vs MALAYSIA")
+    print("Comparing Pottery and dogu (With vs. Without 'Interesting')")
+    print("="*70)
+    print(f"{'Artifact':<10} {'With Interesting':<18} {'Without Interesting':<20}")
+    print("-"*70)
+    for art_type, sims in results.items():
+        wi = f"{sims['With_Interesting']:.4f}" if sims['With_Interesting'] is not None else "N/A"
+        woi = f"{sims['Without_Interesting']:.4f}" if sims['Without_Interesting'] is not None else "N/A"
+        print(f"{art_type:<10} {wi:<18} {woi:<20}")
+    print("="*70)
+
+    # Optional: Save detailed vectors to CSV
+    detail_rows = []
+    for art_type, data in results.items():
+        detail_rows.append({
+            'Artifact_Type': art_type,
+            'Cosine_With_Interesting': data['With_Interesting'],
+            'Cosine_Without_Interesting': data['Without_Interesting'],
+            'Japan_Full_Vector': str(data['Japan_Vector_Full']),
+            'Malaysia_Full_Vector': str(data['Malaysia_Vector_Full']),
+            'Japan_NoInt_Vector': str(data['Japan_Vector_NoInt']),
+            'Malaysia_NoInt_Vector': str(data['Malaysia_Vector_NoInt']),
+        })
+    detail_df = pd.DataFrame(detail_rows)
+    detail_df.to_csv("pottery_dogu_cosine_similarities.csv", index=False)
+    print("\nDetailed results saved to: pottery_dogu_cosine_similarities.csv")
+
+    return results
+
+
 # Main Execution
 if __name__ == "__main__":
     # === USER CONTROLS ===
@@ -401,3 +528,28 @@ if __name__ == "__main__":
         print(
             "Please ensure all directories are set up correctly."
         )
+
+    # try:
+    #     # Load both datasets
+    #     print("Loading Japan dataset...")
+    #     df_japan = load_combined_qna_data("./src/jomon_kaen_dataset/japan", POTTERY_MODELS_DIR)
+    #     print("Loading Malaysia dataset...")
+    #     df_malaysia = load_combined_qna_data("./src/jomon_kaen_dataset/malaysia", POTTERY_MODELS_DIR)
+
+    #     if df_japan.empty or df_malaysia.empty:
+    #         print("Error: One or both datasets are empty.")
+    #     else:
+    #         # Run Pottery vs dogu analysis for each country (optional)
+    #         # analyze_pottery_vs_dogu(df_japan, language='japan')
+    #         # analyze_pottery_vs_dogu(df_malaysia, language='malaysia')
+
+    #         # MAIN NEW ANALYSIS: Cross-cultural similarity for Pottery and dogu
+    #         print("\n" + "="*50)
+    #         print("COMPUTING CROSS-CULTURAL COSINE SIMILARITY")
+    #         print("="*50)
+    #         sim_results = compute_cosine_sim_pottery_vs_dogu(df_japan, df_malaysia)
+
+    # except Exception as e:
+    #     print(f"Error during analysis: {e}")
+    #     import traceback
+    #     traceback.print_exc()
