@@ -172,7 +172,7 @@ class MeaningMakingModel(nn.Module):
                                   padding=1,
                                   bias=False),
                         nn.BatchNorm3d(out_dim),
-                        nn.ReLU(inplace=True)))
+                        nn.ReLU()))
 
         self.heatmap_head = nn.ConvTranspose3d(up_dims[-1], 1, kernel_size=1)
         self.emotion_head = nn.ConvTranspose3d(up_dims[-1],
@@ -188,7 +188,7 @@ class MeaningMakingModel(nn.Module):
         self.context_projection = nn.Sequential(
             nn.Linear(visual_context_size,
                       hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Dropout(0.3))
         self.token_embedding = nn.Embedding(vocab_size,
                                             embed_dim,

@@ -28,58 +28,139 @@ def initialize_sparse_heads(model):
                     print("Heatmap haad bias initialized to 0.5")
 
 
-def ConvConvEncoder(in_dim, out_dim):
-    return nn.Sequential(nn.Conv3d(in_dim,
-                                   out_dim,
-                                   3,
-                                   1,
-                                   1,
-                                   bias=False),
-                         nn.BatchNorm3d(out_dim),
-                         nn.ReLU(inplace=True),
-                         nn.Conv3d(out_dim,
-                                   out_dim,
-                                   3,
-                                   1,
-                                   1,
-                                   bias=False),
-                         nn.BatchNorm3d(out_dim),
-                         nn.ReLU(inplace=True))
+# def ConvConvEncoder(in_dim, out_dim):
+#     return nn.Sequential(nn.Conv3d(in_dim,
+#                                    out_dim,
+#                                    3,
+#                                    1,
+#                                    1,
+#                                    bias=False),
+#                          nn.BatchNorm3d(out_dim),
+#                          nn.ReLU(inplace=True),
+#                          nn.Conv3d(out_dim,
+#                                    out_dim,
+#                                    3,
+#                                    1,
+#                                    1,
+#                                    bias=False),
+#                          nn.BatchNorm3d(out_dim),
+#                          nn.ReLU(inplace=True))
 
 
-def UpSampleDecoder(in_dim, out_dim):
-    return nn.Sequential(
-        nn.ConvTranspose3d(in_dim,
-                           out_dim,
-                           kernel_size=4,
-                           stride=2,
-                           padding=1,
-                           bias=False),
-        nn.BatchNorm3d(out_dim),
-        nn.ReLU(inplace=True))
+class ConvConvEncoder(nn.Module):
+
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.enc = nn.Sequential(
+            nn.Conv3d(in_dim,
+                      out_dim,
+                      3,
+                      1,
+                      1,
+                      bias=False),
+            nn.BatchNorm3d(out_dim),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_dim,
+                      out_dim,
+                      3,
+                      1,
+                      1,
+                      bias=False),
+            nn.BatchNorm3d(out_dim),
+            nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        return self.enc(x)
 
 
-# Pass through skip block after each upsampling
-def SkipBlock(upsample_out_dim, skip_channels_dim):
-    return nn.Sequential(
-        nn.Conv3d(upsample_out_dim + skip_channels_dim,
-                  upsample_out_dim,
-                  kernel_size=3,
-                  padding=1,
-                  bias=False),
-        nn.BatchNorm3d(upsample_out_dim),
-        nn.ReLU(inplace=True))
+# def UpSampleDecoder(in_dim, out_dim):
+#     return nn.Sequential(
+#         nn.ConvTranspose3d(in_dim,
+#                            out_dim,
+#                            kernel_size=4,
+#                            stride=2,
+#                            padding=1,
+#                            bias=False),
+#         nn.BatchNorm3d(out_dim),
+#         nn.ReLU())
 
 
-def ExpertBlock_PersonalityBlock(bottleneck_dim):
-    hidden_dim = max(4, bottleneck_dim // 8)  # Small model, 64 // 8 = 8
+class UpSampleDecoder(nn.Module):
 
-    return nn.Sequential(nn.AdaptiveAvgPool3d(1),
-                         nn.Conv3d(bottleneck_dim,
-                                   hidden_dim,
-                                   1),
-                         nn.ReLU(),
-                         nn.Conv3d(hidden_dim,
-                                   bottleneck_dim,
-                                   1),
-                         nn.Softmax(dim=1))
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.up = nn.Sequential(
+            nn.ConvTranspose3d(in_dim,
+                               out_dim,
+                               kernel_size=4,
+                               stride=2,
+                               padding=1,
+                               bias=False),
+            nn.BatchNorm3d(out_dim),
+            nn.ReLU())
+
+    def forward(self, x):
+        return self.up(x)
+
+
+# # Pass through skip block after each upsampling
+# def SkipBlock(upsample_out_dim, skip_channels_dim):
+#     return nn.Sequential(
+#         nn.Conv3d(upsample_out_dim + skip_channels_dim,
+#                   upsample_out_dim,
+#                   kernel_size=3,
+#                   padding=1,
+#                   bias=False),
+#         nn.BatchNorm3d(upsample_out_dim),
+#         nn.ReLU())
+
+
+class SkipBlock(nn.Module):
+
+    def __init__(self, upsample_out_dim, skip_channels_dim):
+        super().__init__()
+        self.skip_block = nn.Sequential(
+            nn.Conv3d(upsample_out_dim + skip_channels_dim,
+                      upsample_out_dim,
+                      kernel_size=3,
+                      padding=1,
+                      bias=False),
+            nn.BatchNorm3d(upsample_out_dim),
+            nn.ReLU())
+
+    def forward(self, x):
+        return self.skip_block(x)
+
+
+# def ExpertBlock_PersonalityBlock(bottleneck_dim):
+#     hidden_dim = max(4, bottleneck_dim // 8)  # Small model, 64 // 8 = 8
+
+#     return nn.Sequential(nn.AdaptiveAvgPool3d(1),
+#                          nn.Conv3d(bottleneck_dim,
+#                                    hidden_dim,
+#                                    1),
+#                          nn.ReLU(),
+#                          nn.Conv3d(hidden_dim,
+#                                    bottleneck_dim,
+#                                    1),
+#                          nn.Softmax(dim=1))
+
+
+class ExpertBlock_PersonalityBlock(nn.Module):
+
+    def __init__(self, bottleneck_dim):
+        super().__init__()
+        hidden_dim = max(4, bottleneck_dim // 8)  # Small model, 64 // 8 = 8
+
+        self.expert = nn.Sequential(nn.AdaptiveAvgPool3d(1),
+                                    nn.Conv3d(bottleneck_dim,
+                                              hidden_dim,
+                                              1),
+                                    nn.ReLU(),
+                                    nn.Conv3d(hidden_dim,
+                                              bottleneck_dim,
+                                              1),
+                                    nn.Softmax(dim=1))
+
+    def forward(self, x):
+        return self.expert(x)

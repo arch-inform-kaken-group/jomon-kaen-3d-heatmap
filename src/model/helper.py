@@ -34,8 +34,6 @@ class SimpleTokenizer:
         self.vocab_size = len(self.word_to_idx)
         self.max_len = max_len
 
-        # Do NOT store tokenizer here — it's not picklable!
-
     def _tokenize_ja(self, text):
         normalized = neologdn.normalize(text)
         tokenizer, mode = _get_sudachi_tokenizer()
@@ -47,9 +45,11 @@ class SimpleTokenizer:
 
     def build_vocab(self, sentences):
         longest = 0
+        total_length = 0
         for sentence in sentences:
             words = self._tokenize_ja(sentence)
             longest = max(longest, len(words))
+            total_length += len(words)
             for word in words:
                 if word and word not in self.word_to_idx:
                     idx = len(self.word_to_idx)
@@ -60,6 +60,7 @@ class SimpleTokenizer:
         print(f"Tokens: {self.word_to_idx}")
         print(f"Vocabulary size: {self.vocab_size}")
         print(f"Longest sentence (in tokens): {longest}")
+        print(f"Average length: {total_length/len(sentences)}")
 
     def tokenize(self, sentence):
         words = self._tokenize_ja(sentence)
