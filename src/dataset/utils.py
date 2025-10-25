@@ -384,7 +384,7 @@ def filter_data_on_condition(
         session_ids (list): The list of sessions to include, leave empty for all sessions. Default: []
         pottery_ids (list): The list of potteries to include, leave empty for all potteries. Default: []
         min_pointcloud_size (float): Minimum pointcoud data size. Default: 0.0
-        min_qa_size (float): Minimum qa data size. Default: 0.0
+        min_qa_size (float): Minimum qa data size in KB. Default: 0.0
         min_voice_quality (float): Minimum voice quality 1-5. Requires a tracking sheet to filter. Default: 0.1
         min_emotion_count (int): Minimum emotion count. Unique QNA answers. Default: 0
         use_cache (bool): Use previous preprocessed data. Default: True
