@@ -12,7 +12,6 @@ from sudachipy import tokenizer as sudachi_tokenizer
 from dataset.utils import DEFAULT_QNA_ANSWER_COLOR_MAP
 from model.config import VOXEL_RESOLUTION
 
-
 # yapf: disable
 # Module-level tokenizer (initialized once, not tied to instance)
 _sudachi_tokenizer_instance = None
@@ -26,7 +25,7 @@ def _get_sudachi_tokenizer():
     return _sudachi_tokenizer_instance, _sudachi_mode
 
 class SimpleTokenizer:
-    """Picklable Japanese tokenizer using SudachiPy — keeps ALL tokens"""
+    """Picklable Japanese tokenizer using SudachiPy - keeps ALL tokens"""
 
     def __init__(self, max_len=50):
         self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3}
@@ -78,50 +77,36 @@ class SimpleTokenizer:
         return torch.tensor(tokens, dtype=torch.long)
 
 # class SimpleTokenizer:
-#     """Maybe replace with uni-dict or other in the future"""
+#     """A simple tokenizer to convert text comments into numerical tensors."""
 
 #     def __init__(self, max_len=50):
-#         # <pad>: Padding for shorter sentences
-#         # <sos>: Start of sentence
-#         # <eos>: End of sentence
-#         # <unk>: Unknown word placeholder
 #         self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3}
 #         self.idx_to_word = {v: k for k, v in self.word_to_idx.items()}
 #         self.vocab_size = len(self.word_to_idx)
 #         self.max_len = max_len
 
 #     def build_vocab(self, sentences):
-#         """Builds vocabulary from sentences, to include all words from training and validation"""
-#         longest = 0
-
+#         """Builds vocabulary from a list of sentences."""
 #         for sentence in sentences:
-#             words = sentence.lower().split()
-
-#             longest = max(longest, len(words))
-
-#             for word in words:
+#             for word in sentence.lower().split():
 #                 if word not in self.word_to_idx:
 #                     idx = len(self.word_to_idx)
 #                     self.word_to_idx[word] = idx
 #                     self.idx_to_word[idx] = word
 #         self.vocab_size = len(self.word_to_idx)
-#         print(self.word_to_idx)
-#         print(f"Longest sentence: {longest}")
 
 #     def tokenize(self, sentence):
+#         """Tokenizes and pads a single sentence."""
 #         tokens = [
-#             self.word_to_idx.get(word, self.word_to_idx['<unk>'])
+#             self.word_to_idx.get(word,
+#                                  self.word_to_idx['<unk>'])
 #             for word in sentence.lower().split()
 #         ]
-#         tokens = [
-#             [self.word_to_idx['<sos>']] +
-#             tokens +
-#             [self.word_to_idx['<eos>']]
-#         ]
-
+#         tokens = [self.word_to_idx['<sos>']
+#                   ] + tokens + [self.word_to_idx['<eos>']]
 #         padded_tokens = tokens[:self.max_len]
-#         padded_tokens += [self.word_to_idx['<pad>']] * (self.max_len - len(padded_tokens))
-
+#         padded_tokens += [self.word_to_idx['<pad>']
+#                           ] * (self.max_len - len(padded_tokens))
 #         return torch.tensor(padded_tokens, dtype=torch.long)
 # yapf: enable
 

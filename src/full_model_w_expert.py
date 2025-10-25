@@ -133,7 +133,7 @@ class MeaningMakingModel(nn.Module):
                  conv_dims: list,
                  resolution,
                  embed_dim=64,
-                 hidden_dim=128,
+                 hidden_dim=64,
                  num_experts=3):
         super().__init__()
 
