@@ -415,9 +415,33 @@ def process_questionnaire_answers_markers(
     qna_answer_color_map: dict,
     hololens_2_spatial_error: float,
     gaussian_denominator: float,
+    language='japan', # Added language parameter
+    sanity_check=False,
 ):
+    # Select language-specific maps
+    if language == 'japan':
+        EMOTION_SHORT_LABEL_MAP = SHORT_LABELS_JP
+        EMOTION_SYMBOL_MAP = EMOTION_SYMBOL_MAP_JP
+    else:
+        EMOTION_SHORT_LABEL_MAP = SHORT_LABELS_EN
+        EMOTION_SYMBOL_MAP = EMOTION_SYMBOL_MAP_EN
+
     df = pd.read_csv(input_file, header=0, sep=",")
     df.dropna(subset=["estX", "estY", "estZ", "answer"], inplace=True)
+
+    df = pd.read_csv(input_file, header=0, sep=",")
+    df["estX"] = pd.to_numeric(df["estX"], errors="coerce")
+    df["estY"] = pd.to_numeric(df["estY"], errors="coerce")
+    df["estZ"] = pd.to_numeric(df["estZ"], errors="coerce")
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce") # Ensure timestamp is numeric
+    df["answer"] = df["answer"].astype(str).str.strip()
+    df.dropna(subset=["estX", "estY", "estZ", "answer", "timestamp"], inplace=True)
+    
+    # Map long labels to short labels
+    df['answer_short'] = df['answer'].map(EMOTION_SHORT_LABEL_MAP)
+
+    # Sort by timestamp for correct timeline plotting
+    df = df.sort_values('timestamp').reset_index(drop=True)
 
     mesh = o3d.io.read_triangle_mesh(model_file)
     if not mesh.has_vertices():
@@ -429,8 +453,8 @@ def process_questionnaire_answers_markers(
     max_range = np.max(max_bound - min_bound)
 
     # marker_size = max_range / 110
-    marker_size = max_range / 75
-    # marker_size = max_range / 55
+    # marker_size = max_range / 75
+    marker_size = max_range / 55
 
     # 1. Create Base Geometries (Templates)
     # This is done only ONCE per shape type for maximum efficiency.
@@ -471,7 +495,7 @@ def process_questionnaire_answers_markers(
 
         # For each point, copy the template, color it, and move it
         for i, point in enumerate(group_df[["estX", "estY", "estZ"]].values):
-            if (i%15==0):
+            if (i%3==0):
                 # Create a fresh copy to avoid moving the original template
                 marker_instance = deepcopy(template_mesh)
                 marker_instance.paint_uniform_color(color_vec)
@@ -536,7 +560,95 @@ def process_questionnaire_answers_markers(
         segmented_colors[list(all_affected_indices)] = color_vec
         segmented_mesh = o3d.geometry.TriangleMesh(mesh)
         segmented_mesh.vertex_colors = o3d.utility.Vector3dVector(segmented_colors)
-        qa_segmented_meshes[color_info["name"]] = segmented_mesh
+        qa_segmented_meshes[color_info["name"]] = [segmented_mesh, segmented_colors]
 
-    return shaped_qna_mesh, qa_segmented_meshes, combined_gaussian_mesh
+    ### Timeline figure
+
+    # A new block starts if the emotion changes OR if the time gap is > 50ms.
+    df['time_diff'] = df['timestamp'].diff()
+    # Use the long label for comparison to find blocks
+    emotion_changed = df['answer'] != df['answer'].shift()
+    time_gap_exceeded = df['time_diff'] > 0.05
+    df['block_id'] = (emotion_changed | time_gap_exceeded).cumsum()
+
+    # Group by blocks to get start, end, and emotion for each continuous block.
+    # Use the long label for the plot, but short label for the table
+    block_df = df.groupby('block_id').agg(
+        start_time=('timestamp', 'min'),
+        end_time=('timestamp', 'max'),
+        answer=('answer', 'first'),
+        answer_short=('answer_short', 'first')
+    ).reset_index()
+
+    # Duration of a block is its end time minus its start time.
+    block_df['duration'] = block_df['end_time'] - block_df['start_time']
+
+    # Map answers to colors, normalizing RGB from [0, 255] to [0, 1]
+    colors = [
+        np.array(qna_answer_color_map.get(ans, {"rgb": [128, 128, 128]})["rgb"]) / 255.0
+        for ans in block_df["answer"]
+    ]
+
+    timeline_fig, ax = plt.subplots(figsize=(15, 2))
+
+    # Plot each block as a bar. Gaps will appear as white space.
+    ax.barh(y=[0] * len(block_df), width=block_df['duration'], left=block_df['start_time'], color=colors, height=1)
+
+    # Formatting the plot
+    ax.set_yticks([])
+    ax.set_xlabel("Time (seconds)")
+    ax.set_xlim(left=0)
+
+    # Extract pottery ID from the input file path for the title
+    pottery_id_title = Path(input_file).parent.name
+    ax.set_title(f"Emotion Timeline for {pottery_id_title}")
+
+    # Create custom legend
+    legend_patches = [
+        mpatches.Patch(color=np.array(info["rgb"]) / 255.0, label=name)
+        for name, info in qna_answer_color_map.items()
+    ]
+    ax.legend(handles=legend_patches, bbox_to_anchor=(1.02, 1), loc='upper left')
+
+    timeline_fig.tight_layout(rect=[0, 0, 0.85, 1])
+
+    # --- CSV SAVING CODE STARTS HERE ---
+
+    # Calculate total durations and percentages for all unique answers
+    total_durations = block_df.groupby('answer')['duration'].sum().reset_index()
+    total_duration_sum = total_durations['duration'].sum()
+    
+    if total_duration_sum > 0:
+        total_durations['percentage'] = (total_durations['duration'] / total_duration_sum) * 100
+    else:
+        total_durations['percentage'] = 0.0
+
+    # Create the final table
+    final_table_df = pd.DataFrame(columns=['シンボル', '感情クラス', '視線固定時間 (ms)', '%'])
+
+    if sanity_check:
+        for _, row in total_durations.iterrows():
+            long_label = row['answer']
+            short_label = EMOTION_SHORT_LABEL_MAP.get(long_label, long_label)
+            symbol = EMOTION_SYMBOL_MAP.get(long_label, "")
+            duration_ms = round(row['duration'] * 1000, 0)
+            percentage = round(row['percentage'], 1)
+            
+            # Append the new row to the DataFrame
+            new_row = pd.DataFrame([{
+                'シンボル': symbol,
+                '感情クラス': short_label,
+                '視線固定時間 (ms)': duration_ms,
+                '%': percentage
+            }])
+            final_table_df = pd.concat([final_table_df, new_row], ignore_index=True)
+
+        # Reorder rows based on the symbol order in the image
+        symbol_order = ["◇", "□", "△", "X", "○"]
+        final_table_df['order'] = final_table_df['シンボル'].apply(lambda x: symbol_order.index(x) if x in symbol_order else len(symbol_order))
+        final_table_df = final_table_df.sort_values(by='order').drop('order', axis=1)
+    
+    # --- CSV SAVING CODE ENDS HERE ---
+
+    return shaped_qna_mesh, qa_segmented_meshes, combined_gaussian_mesh, timeline_fig, final_table_df
 # yapf: enable
