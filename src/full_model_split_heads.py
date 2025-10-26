@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchinfo
 import pytorch_lightning as pl
+from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -957,6 +958,7 @@ if __name__ == "__main__":
             ],
             log_every_n_steps=10,
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
+            strategy=DDPStrategy(find_unused_parameters=True),
             devices=4,
             accumulate_grad_batches=4,
             precision='16-mixed' if torch.cuda.is_available() else 32,
