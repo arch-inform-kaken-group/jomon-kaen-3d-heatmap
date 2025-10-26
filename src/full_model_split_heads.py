@@ -137,7 +137,8 @@ class MeaningMakingModel(nn.Module):
         final_size = resolution // (2**self.depth)
         flat_feature_size = conv_dims[-1] * (final_size**3)
         self.encoder_blocks = nn.ModuleList()
-        for i, (in_dim, out_dim) in enumerate(zip(conv_dims[:-1], conv_dims[1:])):
+        for i, (in_dim,
+                out_dim) in enumerate(zip(conv_dims[:-1], conv_dims[1:])):
             self.encoder_blocks.append(ConvConvEncoder(in_dim, out_dim))
         self.pool = nn.MaxPool3d(2)
 
@@ -162,8 +163,7 @@ class MeaningMakingModel(nn.Module):
                                   out_dim,
                                   kernel_size=3,
                                   padding=1,
-                                  bias=False),
-                        nn.BatchNorm3d(out_dim),
+                                  bias=False), nn.BatchNorm3d(out_dim),
                         nn.ReLU()))
 
         # Heatmap Stream
@@ -182,8 +182,7 @@ class MeaningMakingModel(nn.Module):
                                   out_dim,
                                   kernel_size=3,
                                   padding=1,
-                                  bias=False),
-                        nn.BatchNorm3d(out_dim),
+                                  bias=False), nn.BatchNorm3d(out_dim),
                         nn.ReLU()))
 
         # Fusion at layer 2
@@ -196,16 +195,14 @@ class MeaningMakingModel(nn.Module):
                       kernel_size=3,
                       padding=1,
                       bias=False),
-            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]),
-            nn.ReLU())
+            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]), nn.ReLU())
         self.fusion_conv_heat = nn.Sequential(
             nn.Conv3d(fused_dim,
                       up_dims[self.fusion_layer_idx],
                       kernel_size=3,
                       padding=1,
                       bias=False),
-            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]),
-            nn.ReLU())
+            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]), nn.ReLU())
 
         # Heads
         self.heatmap_head = nn.ConvTranspose3d(up_dims[-1], 1, kernel_size=1)
@@ -219,9 +216,7 @@ class MeaningMakingModel(nn.Module):
 
         visual_context_size = flat_feature_size + num_emotions + 1
         self.context_projection = nn.Sequential(
-            nn.Linear(visual_context_size,
-                      hidden_dim),
-            nn.ReLU(),
+            nn.Linear(visual_context_size, hidden_dim), nn.ReLU(),
             nn.Dropout(0.3))
 
         # Transformer
@@ -283,14 +278,18 @@ class MeaningMakingModel(nn.Module):
         if return_all_experts:
             outputs = []
             for feat in expert_features:
-                emo, heat, tok = self._decode_and_predict(feat, skip_features, target_tokens)
+                emo, heat, tok = self._decode_and_predict(
+                    feat, skip_features, target_tokens)
                 outputs.append((emo, heat, tok))
             return outputs
         elif expert_idx is not None:
-            emo, heat, tok = self._decode_and_predict(expert_features[expert_idx], skip_features, target_tokens)
+            emo, heat, tok = self._decode_and_predict(
+                expert_features[expert_idx], skip_features, target_tokens)
             return emo, heat, tok
         else:
-            emo, heat, tok = self._decode_and_predict(expert_features[0], skip_features, target_tokens)
+            emo, heat, tok = self._decode_and_predict(expert_features[0],
+                                                      skip_features,
+                                                      target_tokens)
             return emo, heat, tok
 
     def _decode_and_predict(self, bottleneck, skip_features, target_tokens):
@@ -335,8 +334,7 @@ class MeaningMakingModel(nn.Module):
             if layer_idx == self.fusion_layer_idx - 1:  # because we just finished layer 1, now at layer 2 output
                 # Concatenate cross-stream features
                 fused_emo = torch.cat([emo_features, heat_features], dim=1)
-                fused_heat = torch.cat([heat_features,
-                                        emo_features],
+                fused_heat = torch.cat([heat_features, emo_features],
                                        dim=1)  # same content
 
                 # Project back to original channel size
@@ -349,17 +347,12 @@ class MeaningMakingModel(nn.Module):
 
         # Context for language (unchanged)
         emotion_context = self.emotion_pooling(emotion_preds.detach()).view(
-            batch_size,
-            -1)
+            batch_size, -1)
         heatmap_context = self.heatmap_pooling(heatmap_preds.detach()).view(
-            batch_size,
-            -1)
+            batch_size, -1)
         flat_features = bottleneck.view(batch_size, -1)
         visual_features = torch.cat(
-            [flat_features,
-             emotion_context,
-             heatmap_context],
-            dim=1)
+            [flat_features, emotion_context, heatmap_context], dim=1)
         visual_context = self.context_projection(visual_features)
         context_embed = self.context_to_embed(visual_context)
 
@@ -376,15 +369,15 @@ class MeaningMakingModel(nn.Module):
         input_tokens = torch.cat([
             torch.ones(B, 1, dtype=torch.long, device=device) * 1,
             target_tokens[:, :-1]
-        ], dim=1)
+        ],
+                                 dim=1)
         token_emb = self.token_embedding(input_tokens)
         pos_ids = torch.arange(T, device=device).unsqueeze(0).expand(B, -1)
         pos_emb = self.pos_embedding(pos_ids)
         tgt = token_emb + pos_emb
         memory = context_embed.unsqueeze(1).expand(-1, T, -1)
         tgt_mask = nn.Transformer.generate_square_subsequent_mask(
-            T,
-            device=device)
+            T, device=device)
         decoded = self.transformer_decoder(tgt, memory, tgt_mask=tgt_mask)
         logits = self.output_projection(decoded)
         return logits
@@ -398,14 +391,12 @@ class MeaningMakingModel(nn.Module):
             T_curr = generated.size(1)
             token_emb = self.token_embedding(generated)
             pos_ids = torch.arange(T_curr,
-                                   device=device).unsqueeze(0).expand(B,
-                                                                      -1)
+                                   device=device).unsqueeze(0).expand(B, -1)
             pos_emb = self.pos_embedding(pos_ids)
             tgt = token_emb + pos_emb
             memory = context_embed.unsqueeze(1).expand(-1, T_curr, -1)
             tgt_mask = nn.Transformer.generate_square_subsequent_mask(
-                T_curr,
-                device=device)
+                T_curr, device=device)
             decoded = self.transformer_decoder(tgt, memory, tgt_mask=tgt_mask)
             logits = self.output_projection(decoded)
             next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
@@ -452,17 +443,15 @@ class MeaningMakingLightningModule(pl.LightningModule):
                                                     focal_weight=1.5,
                                                     dice_weight=0.5,
                                                     iou_weight=0.5)
-        self.emo_sparsity = nonzero_emo_target
-        self.heat_sparsity = nonzero_heat_target
+        self.emo_sparsity = self.hparams.nonzero_emo_target
+        self.heat_sparsity = self.hparams.nonzero_heat_target
         self.nonzero_reg_emo = NonZeroRegularization(
-            weight=0.5,
-            target_sparsity=nonzero_emo_target)
+            weight=0.5, target_sparsity=self.hparams.nonzero_emo_target)
         self.nonzero_reg_heat = NonZeroRegularization(
-            weight=0.1,
-            target_sparsity=nonzero_heat_target)
+            weight=0.1, target_sparsity=self.hparams.nonzero_heat_target)
         self.token_criterion = nn.CrossEntropyLoss(ignore_index=0,
                                                    label_smoothing=0.1)
-        self.voxel_loss_weight = voxel_loss_weight
+        self.voxel_loss_weight = self.hparams.voxel_loss_weight
         self.val_data_paths = []
 
     def forward(self, x, target_tokens=None):
@@ -473,6 +462,7 @@ class MeaningMakingLightningModule(pl.LightningModule):
         emotion_labels = emotion_labels.float()
         heatmaps = heatmaps.float()
         if is_training:
+            # Label smoothing for voxel targets
             emotion_labels = emotion_labels * 0.98 + 0.01
             heatmaps = heatmaps * 0.98 + 0.01
 
@@ -487,8 +477,12 @@ class MeaningMakingLightningModule(pl.LightningModule):
             for emo_pred, heat_pred, tok_pred in all_outputs:
                 loss_emo, _ = self.emotion_criterion(emo_pred, emotion_labels)
                 loss_heat, _ = self.heatmap_criterion(heat_pred, heatmaps)
+
+                # Ensure token preds and targets match length
                 pred_seq_len = tok_pred.size(1)
                 target_seq_len = self.model.max_comment_len
+                tok_target = tokens  # Use full token target
+
                 if pred_seq_len < target_seq_len:
                     padding = torch.zeros(tok_pred.size(0),
                                           target_seq_len - pred_seq_len,
@@ -497,10 +491,19 @@ class MeaningMakingLightningModule(pl.LightningModule):
                     tok_pred = torch.cat([tok_pred, padding], dim=1)
                 elif pred_seq_len > target_seq_len:
                     tok_pred = tok_pred[:, :target_seq_len, :]
-                tok_target = tokens[:, :target_seq_len]
+
+                # Ensure target is also trimmed if needed (shouldn't be, but safe)
+                if tok_target.size(1) > target_seq_len:
+                    tok_target = tok_target[:, :target_seq_len]
+                elif tok_target.size(1) < target_seq_len:
+                    pad = torch.zeros(tok_target.size(0),
+                                      target_seq_len - tok_target.size(1),
+                                      dtype=torch.long,
+                                      device=tok_target.device)
+                    tok_target = torch.cat([tok_target, pad], dim=1)
+
                 loss_tok = self.token_criterion(
-                    tok_pred.reshape(-1,
-                                     self.model.vocab_size),
+                    tok_pred.reshape(-1, self.model.vocab_size),
                     tok_target.reshape(-1)) * text_scale
 
                 nonzero_emo = self.nonzero_reg_emo(emo_pred)
@@ -513,8 +516,7 @@ class MeaningMakingLightningModule(pl.LightningModule):
                 aux_emo_logits = self.model.aux_emo_classifier(flat_features)
                 emo_any = (emotion_labels > 0.1).float().amax(dim=(2, 3, 4))
                 aux_emo_loss = F.binary_cross_entropy_with_logits(
-                    aux_emo_logits,
-                    emo_any)
+                    aux_emo_logits, emo_any)
                 heat_max = heatmaps.amax(dim=(2, 3, 4))
                 aux_heat_pred_raw = self.model.aux_heat_regressor(
                     flat_features)
@@ -534,11 +536,14 @@ class MeaningMakingLightningModule(pl.LightningModule):
                               nonzero_emo + nonzero_heat +
                               self.hparams.l1_weight * 0.5 *
                               (l1_emo + l1_heat) + aux_loss)
-                total_loss = self.voxel_loss_weight * voxel_loss + loss_tok  # note: loss_tok already in global, but kept for balance
+                # Final loss combines voxel and token losses
+                total_loss = self.hparams.voxel_loss_weight * voxel_loss + loss_tok
 
                 branch_losses.append(total_loss)
+
             branch_losses = torch.stack(branch_losses)
             best_idx = torch.argmin(branch_losses).item()
+            # Sum losses: gradient flows for best, no-grad for others
             total_loss = sum(loss if i == best_idx else loss.detach()
                              for i, loss in enumerate(branch_losses))
             emotion_preds, heatmap_preds, token_preds = all_outputs[best_idx]
@@ -546,16 +551,57 @@ class MeaningMakingLightningModule(pl.LightningModule):
                      float(best_idx),
                      on_step=True,
                      on_epoch=False)
+
+            # Recompute main losses for logging (or just grab them)
+            # This is complex, simplest is to just recompute from the best preds
+            loss_emo, _ = self.emotion_criterion(emotion_preds, emotion_labels)
+            loss_heat, _ = self.heatmap_criterion(heatmap_preds, heatmaps)
+            # Re-check token preds length for logging
+            pred_seq_len = token_preds.size(1)
+            target_seq_len = self.model.max_comment_len
+            tok_target = tokens
+            if pred_seq_len < target_seq_len:
+                padding = torch.zeros(token_preds.size(0),
+                                      target_seq_len - pred_seq_len,
+                                      token_preds.size(2),
+                                      device=token_preds.device)
+                token_preds = torch.cat([token_preds, padding], dim=1)
+            elif pred_seq_len > target_seq_len:
+                token_preds = token_preds[:, :target_seq_len, :]
+            if tok_target.size(1) > target_seq_len:
+                tok_target = tok_target[:, :target_seq_len]
+            elif tok_target.size(1) < target_seq_len:
+                pad = torch.zeros(tok_target.size(0),
+                                  target_seq_len - tok_target.size(1),
+                                  dtype=torch.long,
+                                  device=tok_target.device)
+                tok_target = torch.cat([tok_target, pad], dim=1)
+            loss_tok = self.token_criterion(
+                token_preds.reshape(-1, self.model.vocab_size),
+                tok_target.reshape(-1)) * text_scale
+            l1_emo = F.l1_loss(torch.sigmoid(emotion_preds), emotion_labels)
+            l1_heat = F.l1_loss(torch.sigmoid(heatmap_preds), heatmaps)
+            nonzero_emo = self.nonzero_reg_emo(emotion_preds)
+            nonzero_heat = self.nonzero_reg_heat(heatmap_preds)
+            # aux_loss is already computed and detached, so it's fine
+
         else:
-            all_outputs = self.model(inputs,
-                                     target_tokens=None,
-                                     return_all_experts=True)
+            # Validation step
+            all_outputs = self.model(
+                inputs,
+                target_tokens=None,  # Inference mode
+                return_all_experts=True)
             branch_losses = []
             for emo_pred, heat_pred, tok_pred in all_outputs:
                 loss_emo, _ = self.emotion_criterion(emo_pred, emotion_labels)
                 loss_heat, _ = self.heatmap_criterion(heat_pred, heatmaps)
+
+                # tok_pred from inference is (B, max_len, Vocab)
+                # tok_target is (B, max_len)
                 pred_seq_len = tok_pred.size(1)
                 target_seq_len = self.model.max_comment_len
+                tok_target = tokens  # Use full token target
+
                 if pred_seq_len < target_seq_len:
                     padding = torch.zeros(tok_pred.size(0),
                                           target_seq_len - pred_seq_len,
@@ -564,11 +610,19 @@ class MeaningMakingLightningModule(pl.LightningModule):
                     tok_pred = torch.cat([tok_pred, padding], dim=1)
                 elif pred_seq_len > target_seq_len:
                     tok_pred = tok_pred[:, :target_seq_len, :]
-                tokens_trimmed = tokens[:, :target_seq_len]
+
+                if tok_target.size(1) > target_seq_len:
+                    tok_target = tok_target[:, :target_seq_len]
+                elif tok_target.size(1) < target_seq_len:
+                    pad = torch.zeros(tok_target.size(0),
+                                      target_seq_len - tok_target.size(1),
+                                      dtype=torch.long,
+                                      device=tok_target.device)
+                    tok_target = torch.cat([tok_target, pad], dim=1)
+
                 loss_tok = self.token_criterion(
-                    tok_pred.reshape(-1,
-                                     self.model.vocab_size),
-                    tokens_trimmed.reshape(-1)) * text_scale
+                    tok_pred.reshape(-1, self.model.vocab_size),
+                    tok_target.reshape(-1)) * text_scale
 
                 nonzero_emo = self.nonzero_reg_emo(emo_pred)
                 nonzero_heat = self.nonzero_reg_heat(heat_pred)
@@ -580,8 +634,7 @@ class MeaningMakingLightningModule(pl.LightningModule):
                 aux_emo_logits = self.model.aux_emo_classifier(flat_features)
                 emo_any = (emotion_labels > 0.5).float().amax(dim=(2, 3, 4))
                 aux_emo_loss = F.binary_cross_entropy_with_logits(
-                    aux_emo_logits,
-                    emo_any)
+                    aux_emo_logits, emo_any)
                 heat_max = heatmaps.amax(dim=(2, 3, 4))
                 aux_heat_pred_raw = self.model.aux_heat_regressor(
                     flat_features)
@@ -598,17 +651,22 @@ class MeaningMakingLightningModule(pl.LightningModule):
                               nonzero_emo + nonzero_heat +
                               self.hparams.l1_weight * 0.5 *
                               (l1_emo + l1_heat) + aux_loss)
-                total_loss = self.voxel_loss_weight * voxel_loss + loss_tok
+                total_loss = self.hparams.voxel_loss_weight * voxel_loss + loss_tok
                 branch_losses.append(total_loss)
+
             branch_losses = torch.stack(branch_losses)
             best_idx = torch.argmin(branch_losses).item()
+            total_loss = branch_losses[
+                best_idx]  # Just log the best loss for val
             emotion_preds, heatmap_preds, token_preds = all_outputs[best_idx]
 
-            # Recompute for logging
+            # Recompute losses for logging based on best expert
             loss_emo, _ = self.emotion_criterion(emotion_preds, emotion_labels)
             loss_heat, _ = self.heatmap_criterion(heatmap_preds, heatmaps)
+
             pred_seq_len = token_preds.size(1)
             target_seq_len = self.model.max_comment_len
+            tok_target = tokens
             if pred_seq_len < target_seq_len:
                 padding = torch.zeros(token_preds.size(0),
                                       target_seq_len - pred_seq_len,
@@ -617,45 +675,30 @@ class MeaningMakingLightningModule(pl.LightningModule):
                 token_preds = torch.cat([token_preds, padding], dim=1)
             elif pred_seq_len > target_seq_len:
                 token_preds = token_preds[:, :target_seq_len, :]
-            tokens_trimmed = tokens[:, :target_seq_len]
+            if tok_target.size(1) > target_seq_len:
+                tok_target = tok_target[:, :target_seq_len]
+            elif tok_target.size(1) < target_seq_len:
+                pad = torch.zeros(tok_target.size(0),
+                                  target_seq_len - tok_target.size(1),
+                                  dtype=torch.long,
+                                  device=tok_target.device)
+                tok_target = torch.cat([tok_target, pad], dim=1)
+
             loss_tok = self.token_criterion(
-                token_preds.reshape(-1,
-                                    self.model.vocab_size),
-                tokens_trimmed.reshape(-1)) * text_scale
+                token_preds.reshape(-1, self.model.vocab_size),
+                tok_target.reshape(-1)) * text_scale
 
             nonzero_emo = self.nonzero_reg_emo(emotion_preds)
             nonzero_heat = self.nonzero_reg_heat(heatmap_preds)
             l1_emo = F.l1_loss(torch.sigmoid(emotion_preds), emotion_labels)
             l1_heat = F.l1_loss(torch.sigmoid(heatmap_preds), heatmaps)
+            # aux_loss is already computed
 
-            with torch.no_grad():
-                flat_features = self.model(inputs, return_bottleneck=True)
-            aux_emo_logits = self.model.aux_emo_classifier(flat_features)
-            emo_any = (emotion_labels > 0.5).float().amax(dim=(2, 3, 4))
-            aux_emo_loss = F.binary_cross_entropy_with_logits(
-                aux_emo_logits,
-                emo_any)
-            heat_max = heatmaps.amax(dim=(2, 3, 4))
-            aux_heat_pred_raw = self.model.aux_heat_regressor(flat_features)
-            aux_heat_loss = F.mse_loss(torch.sigmoid(aux_heat_pred_raw),
-                                       heat_max)
-            aux_loss = aux_emo_loss + aux_heat_loss
-
-            weighted_emo = self.hparams.emo_loss_weight * loss_emo
-            weighted_heat = self.hparams.heat_loss_weight * loss_heat
-            global_loss = self.hparams.global_loss_weight * (
-                loss_emo + loss_heat + loss_tok)
-
-            voxel_loss = (weighted_emo + weighted_heat + global_loss +
-                          nonzero_emo + nonzero_heat +
-                          self.hparams.l1_weight * 0.5 * (l1_emo + l1_heat) +
-                          aux_loss)
-            total_loss = self.voxel_loss_weight * voxel_loss + loss_tok
-
-        return total_loss, loss_emo, loss_heat, loss_tok, l1_emo, l1_heat, {}, {}, nonzero_emo, nonzero_heat, aux_loss
+        return total_loss, loss_emo, loss_heat, loss_tok, l1_emo, l1_heat, emotion_preds, heatmap_preds, nonzero_emo, nonzero_heat, aux_loss
 
     def training_step(self, batch, batch_idx):
-        loss, l_emo, l_heat, l_tok, l1_emo, l1_heat, _, _, nz_emo, nz_heat, aux_loss = self._shared_step(batch, is_training=True)
+        loss, l_emo, l_heat, l_tok, l1_emo, l1_heat, _, _, nz_emo, nz_heat, aux_loss = self._shared_step(
+            batch, is_training=True)
         self.log_dict(
             {
                 'train_loss': loss,
@@ -675,20 +718,26 @@ class MeaningMakingLightningModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, l_emo, l_heat, l_tok, l1_emo, l1_heat, _, _, nz_emo, nz_heat, aux_loss = self._shared_step(batch, is_training=False)
+        loss, l_emo, l_heat, l_tok, l1_emo, l1_heat, emotion_preds, heatmap_preds, nz_emo, nz_heat, aux_loss = self._shared_step(
+            batch, is_training=False)
+
         inputs, (emotion_labels, heatmaps, tokens) = batch
         emotion_labels = emotion_labels.float()
         heatmaps = heatmaps.float()
-        emotion_preds, heatmap_preds, _ = self.forward(inputs, None)
+
+        # Calculate IoU metrics
         emotion_pred_binary = (torch.sigmoid(emotion_preds) > 0.5).float()
-        emo_iou = (emotion_pred_binary * emotion_labels).sum() / (
-            (emotion_pred_binary + emotion_labels).clamp(0,
-                                                         1).sum() + 1e-6)
+        emo_target_binary = (
+            emotion_labels > 0.5).float()  # Use same threshold for consistency
+        emo_iou = (emotion_pred_binary * emo_target_binary).sum() / (
+            (emotion_pred_binary + emo_target_binary).clamp(0, 1).sum() + 1e-6)
+
         heat_pred_binary = (torch.sigmoid(heatmap_preds) > 0.5).float()
-        heat_target_binary = (heatmaps > 0.1).float()
+        heat_target_binary = (
+            heatmaps > 0.1).float()  # Target is sparse, so 0.1 is fine
         heat_iou = (heat_pred_binary * heat_target_binary).sum() / (
-            (heat_pred_binary + heat_target_binary).clamp(0,
-                                                          1).sum() + 1e-6)
+            (heat_pred_binary + heat_target_binary).clamp(0, 1).sum() + 1e-6)
+
         self.log_dict(
             {
                 'val_loss': loss,
@@ -717,11 +766,11 @@ class MeaningMakingLightningModule(pl.LightningModule):
             heat_mean = torch.sigmoid(heatmap_preds).mean().item()
             if emo_mean < self.emo_sparsity:
                 print(
-                    f"\nWARNING: Emotion pred mean = {emo_mean:.6f}. Lower than data sparsity"
+                    f"\nWARNING: Emotion pred mean = {emo_mean:.6f}. Lower than data sparsity {self.emo_sparsity:.6f}"
                 )
             if heat_mean < self.heat_sparsity:
                 print(
-                    f"WARNING: Heatmap pred mean = {heat_mean:.6f}. Lower than data sparsity"
+                    f"WARNING: Heatmap pred mean = {heat_mean:.6f}. Lower than data sparsity {self.heat_sparsity:.6f}"
                 )
 
     def configure_optimizers(self):
@@ -730,14 +779,39 @@ class MeaningMakingLightningModule(pl.LightningModule):
                 'params': self.model.encoder_blocks.parameters(),
                 'lr': self.hparams.learning_rate
             },
+            # --- CORRECTED PARAMS ---
             {
-                'params': self.model.decoder_blocks.parameters(),
+                'params': self.model.emo_decoder_blocks.parameters(
+                ),  # Was decoder_blocks
                 'lr': self.hparams.learning_rate
             },
             {
-                'params': self.model.skip_conv_blocks.parameters(),
+                'params': self.model.heat_decoder_blocks.parameters(
+                ),  # Was decoder_blocks
                 'lr': self.hparams.learning_rate
             },
+            {
+                'params': self.model.emo_skip_blocks.parameters(
+                ),  # Was skip_conv_blocks
+                'lr': self.hparams.learning_rate
+            },
+            {
+                'params': self.model.heat_skip_blocks.parameters(
+                ),  # Was skip_conv_blocks
+                'lr': self.hparams.learning_rate
+            },
+            # --- ADDED MISSING PARAMS ---
+            {
+                'params':
+                self.model.fusion_conv_emo.parameters(),  # Was missing
+                'lr': self.hparams.learning_rate
+            },
+            {
+                'params':
+                self.model.fusion_conv_heat.parameters(),  # Was missing
+                'lr': self.hparams.learning_rate
+            },
+            # --- REST OF PARAMS (were correct) ---
             {
                 'params': self.model.emotion_head.parameters(),
                 'lr': self.hparams.learning_rate * 1.5
@@ -784,15 +858,9 @@ class MeaningMakingLightningModule(pl.LightningModule):
                                                           start_factor=0.01,
                                                           total_iters=50)
         cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer,
-            T_0=10,
-            T_mult=2,
-            eta_min=1e-6)
+            optimizer, T_0=10, T_mult=2, eta_min=1e-6)
         scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            [linear_warmup,
-             cosine],
-            milestones=[50])
+            optimizer, [linear_warmup, cosine], milestones=[50])
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
@@ -895,11 +963,8 @@ if __name__ == "__main__":
         print("Running torchinfo summary")
         try:
             torchinfo.summary(model,
-                              input_size=(BATCH_SIZE,
-                                          3,
-                                          VOXEL_RESOLUTION,
-                                          VOXEL_RESOLUTION,
-                                          VOXEL_RESOLUTION))
+                              input_size=(BATCH_SIZE, 3, VOXEL_RESOLUTION,
+                                          VOXEL_RESOLUTION, VOXEL_RESOLUTION))
         except Exception as e:
             print(f"torchinfo summary failed: {e}")
 
