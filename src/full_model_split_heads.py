@@ -957,7 +957,7 @@ if __name__ == "__main__":
             log_every_n_steps=10,
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
             devices=3,
-            accumulate_grad_batches=2,
+            accumulate_grad_batches=4,
             precision='16-mixed' if torch.cuda.is_available() else 32,
             gradient_clip_val=1.0)
 
