@@ -922,13 +922,13 @@ if __name__ == "__main__":
             precision='16-mixed' if torch.cuda.is_available() else 32,
             gradient_clip_val=1.0)
 
-        print("Running torchinfo summary")
-        try:
-            torchinfo.summary(model,
-                              input_size=(BATCH_SIZE, 3, VOXEL_RESOLUTION,
-                                          VOXEL_RESOLUTION, VOXEL_RESOLUTION))
-        except Exception as e:
-            print(f"torchinfo summary failed: {e}")
+        # print("Running torchinfo summary")
+        # try:
+        #     torchinfo.summary(model,
+        #                       input_size=(BATCH_SIZE, 3, VOXEL_RESOLUTION,
+        #                                   VOXEL_RESOLUTION, VOXEL_RESOLUTION))
+        # except Exception as e:
+        #     print(f"torchinfo summary failed: {e}")
 
         if VISUALIZE_SAMPLES:
             show_n_samples(datamodule, NUM_SAMPLES)
