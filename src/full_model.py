@@ -18,6 +18,7 @@ import torchinfo
 import random
 
 from dataset.utils import DEFAULT_QNA_ANSWER_COLOR_MAP, filter_data_on_condition
+from dataset.voxel_dataset import ExtendedVoxelDataset
 
 EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
 
@@ -729,105 +730,6 @@ def show_n_samples(datamodule, num_samples_to_show):
             print(f"Showing input sample {i+1}/{num_samples_to_show}")
             o3d.visualization.draw_geometries(
                 [pcd], window_name=f"Input Sample {i+1}")
-
-
-class ExtendedVoxelDataset(Dataset):
-    """
-    Loads pre-voxelized pottery data and its corresponding emotion maps,
-    heatmaps, and text transcripts.
-    """
-
-    def __init__(self,
-                 data_paths,
-                 voxel_resolution,
-                 tokenizer,
-                 augment_color_p=0.0,
-                 color_jitter_std=0.05,
-                 jitter_voxel_p=0.0):
-        self.data_paths = data_paths
-        self.voxel_resolution = voxel_resolution
-        self.tokenizer = tokenizer
-        self.num_emotions = len(EMOTION_ORDER)
-
-        # Augmentation
-        self.augment_color_p = augment_color_p
-        self.color_jitter_std = color_jitter_std
-        self.jitter_voxel_p = jitter_voxel_p
-
-    def __len__(self):
-        return len(self.data_paths)
-
-    def __getitem__(self, idx):
-        data = self.data_paths[idx]
-
-        # 1. Load Voxelized Pottery
-        try:
-            voxel_grid = np.load(data['processed_pottery_path'])
-            # Ensure it's (C, D, H, W)
-            if voxel_grid.shape[0] != 3:
-                raise ValueError(
-                    f"Voxel grid has {voxel_grid.shape[0]} channels, expected 3."
-                )
-            if voxel_grid.ndim != 4:
-                raise ValueError(
-                    f"Voxel grid has {voxel_grid.ndim} dims, expected 4.")
-            voxel_tensor = torch.from_numpy(voxel_grid.astype(np.float32))
-        except Exception as e:
-            print(
-                f"Error loading voxel grid {data['processed_pottery_path']}: {e}"
-            )
-            return self.__getitem__((idx + 1) % len(self))  # Skip bad data
-
-        # 2. Load Emotion Labels
-        try:
-            emotion_labels = np.load(data['EMOTION'])
-            # Ensure (Num_Emotions, D, H, W)
-            if emotion_labels.shape[0] != self.num_emotions:
-                raise ValueError(
-                    f"Emotion label has {emotion_labels.shape[0]} channels, expected {self.num_emotions}."
-                )
-            emotion_tensor = torch.from_numpy(
-                emotion_labels.astype(bool))  # Use bool for memory
-        except Exception as e:
-            print(f"Error loading emotion labels {data['EMOTION']}: {e}")
-            return self.__getitem__((idx + 1) % len(self))
-
-        # 3. Load Heatmap
-        try:
-            heatmap = np.load(data['QA'])
-            # Ensure (1, D, H, W)
-            if heatmap.ndim == 3:
-                heatmap = np.expand_dims(heatmap, axis=0)
-            if heatmap.shape[0] != 1:
-                raise ValueError(
-                    f"Heatmap has {heatmap.shape[0]} channels, expected 1.")
-            heatmap_tensor = torch.from_numpy(heatmap.astype(np.float32))
-        except Exception as e:
-            print(f"Error loading heatmap {data['QA']}: {e}")
-            return self.__getitem__((idx + 1) % len(self))
-
-        # 4. Load and Tokenize Transcript
-        try:
-            with open(data['TRANSCRIPT'], 'r', encoding='utf-8') as f:
-                comment = f.read().strip()
-            token_tensor = self.tokenizer.tokenize(comment)
-        except Exception as e:
-            print(f"Error loading transcript {data['TRANSCRIPT']}: {e}")
-            return self.__getitem__((idx + 1) % len(self))
-
-        # 5. Apply Augmentations (if training)
-        if self.augment_color_p > 0 and random.random() < self.augment_color_p:
-            # Color Jitter
-            jitter = torch.randn_like(voxel_tensor) * self.color_jitter_std
-            voxel_tensor = (voxel_tensor + jitter).clamp(0, 1)
-
-        if self.jitter_voxel_p > 0 and random.random() < self.jitter_voxel_p:
-            # Voxel Jitter (dropout)
-            mask = (torch.rand_like(voxel_tensor)
-                    > self.jitter_voxel_p).float()
-            voxel_tensor = voxel_tensor * mask
-
-        return voxel_tensor, (emotion_tensor, heatmap_tensor, token_tensor)
 
 
 class ExtendedVoxelDataModule(pl.LightningDataModule):
