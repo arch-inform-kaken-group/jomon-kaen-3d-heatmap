@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 import torchinfo
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import FSDPStrategy
@@ -266,11 +267,14 @@ class MeaningMakingModel(nn.Module):
         batch_size = x.size(0)
         skip_features = []
         for i, block in enumerate(self.encoder_blocks):
-            x = block(x)
+            # --- APPLIED CHECKPOINTING ---
+            x = checkpoint.checkpoint(block, x, use_reentrant=False)
+            # --- END ---
             skip_features.append(x)
             x = self.pool(x)
         bottleneck_features = x
         flat_features = bottleneck_features.view(batch_size, -1)
+
         if return_bottleneck:
             return flat_features  # Keep this for aux_loss calculation path
 
@@ -310,9 +314,17 @@ class MeaningMakingModel(nn.Module):
 
         # Process each layer
         for layer_idx in range(len(self.emo_decoder_blocks)):
-            # Upsample
-            emo_features = self.emo_decoder_blocks[layer_idx](emo_features)
-            heat_features = self.heat_decoder_blocks[layer_idx](heat_features)
+            # Upsample (with checkpointing)
+            # --- APPLIED CHECKPOINTING ---
+            emo_features = checkpoint.checkpoint(
+                self.emo_decoder_blocks[layer_idx],
+                emo_features,
+                use_reentrant=False)
+            heat_features = checkpoint.checkpoint(
+                self.heat_decoder_blocks[layer_idx],
+                heat_features,
+                use_reentrant=False)
+            # --- END ---
 
             # Apply skip connections
             skip_idx = self.depth - 1 - layer_idx
@@ -335,9 +347,17 @@ class MeaningMakingModel(nn.Module):
                 emo_features = torch.cat([emo_features, skip_emo], dim=1)
                 heat_features = torch.cat([heat_features, skip_heat], dim=1)
 
-            # Apply skip conv blocks
-            emo_features = self.emo_skip_blocks[layer_idx](emo_features)
-            heat_features = self.heat_skip_blocks[layer_idx](heat_features)
+            # Apply skip conv blocks (with checkpointing)
+            # --- APPLIED CHECKPOINTING ---
+            emo_features = checkpoint.checkpoint(
+                self.emo_skip_blocks[layer_idx],
+                emo_features,
+                use_reentrant=False)
+            heat_features = checkpoint.checkpoint(
+                self.heat_skip_blocks[layer_idx],
+                heat_features,
+                use_reentrant=False)
+            # --- END ---
 
             # FUSION AT LAYER 2 (after processing layer_idx == 1, i.e., at start of layer 2 output)
             if layer_idx == self.fusion_layer_idx - 1:  # because we just finished layer 1, now at layer 2 output
