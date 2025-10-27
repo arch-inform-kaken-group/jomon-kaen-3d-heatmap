@@ -1555,13 +1555,13 @@ if __name__ == "__main__":
         # Determine accelerator and devices
         if torch.cuda.is_available():
             accelerator = "gpu"
-            devices = torch.cuda.device_count()
+            devices = 3
             precision = '16-mixed'
             strategy = FSDPStrategy(
                 auto_wrap_policy=auto_wrap_policy,
                 # Use 'sharded' instead of 'full' for potentially better memory
                 sharding_strategy='SHARD_GRAD_OP',
-                cpu_offload=False  # Offload params to CPU to save GPU RAM
+                cpu_offload=True  # Offload params to CPU to save GPU RAM
             )
             print(f"Using {devices} GPUs with FSDP (CPU Offload).")
         else:
