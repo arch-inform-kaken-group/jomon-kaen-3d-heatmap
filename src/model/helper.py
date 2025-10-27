@@ -324,7 +324,7 @@ class SavePredictionCallback(pl.Callback):
                 current_epoch = trainer.current_epoch
                 text_scale = 0.1 + 0.9 * min(current_epoch / 50.0, 1.0)
 
-                for emo_pred, heat_pred, tok_pred in all_outputs:
+                for emo_pred, heat_pred, tok_pred, _ in all_outputs:
                     loss_emo, _ = pl_module.emotion_criterion(emo_pred, emotion_labels)
                     loss_heat, _ = pl_module.heatmap_criterion(heat_pred, heatmaps)
 
@@ -375,7 +375,7 @@ class SavePredictionCallback(pl.Callback):
 
                 branch_losses = torch.stack(branch_losses)
                 best_idx = torch.argmin(branch_losses).item()
-                emotion_preds, heatmap_preds, token_preds = all_outputs[best_idx]
+                emotion_preds, heatmap_preds, token_preds, _ = all_outputs[best_idx]
                 batch_size = inputs.size(0)
                 for i in range(batch_size):
                     if sample_count >= self.max_samples_to_save:
