@@ -37,7 +37,7 @@ class SimpleTokenizer:
         normalized = neologdn.normalize(text)
         tokenizer, mode = _get_sudachi_tokenizer()
         tokens = [
-            m.normalized_form()
+            m.normalized_form() # surface()
             for m in tokenizer.tokenize(normalized, mode)
         ]
         return tokens
