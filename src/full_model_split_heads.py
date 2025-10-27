@@ -11,7 +11,7 @@ import torchinfo
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import FSDPStrategy
 from functools import partial
-from torch.distributed.fsdp.wrap import always_wrap_policy
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -894,7 +894,10 @@ if __name__ == "__main__":
             save_every_n_epochs=SAVE_EVERY_N_EPOCHS,
             max_samples_to_save=MAX_SAMPLES_TO_SAVE)
 
-        auto_wrap_policy = partial(always_wrap_policy, )
+        auto_wrap_policy = partial(
+            size_based_auto_wrap_policy,
+            min_num_params=1e5  # Wrap blocks with 100k+ parameters
+        )
 
         trainer = pl.Trainer(
             max_epochs=MAX_EPOCHS,
