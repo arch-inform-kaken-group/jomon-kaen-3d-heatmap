@@ -38,7 +38,7 @@ MAX_COMMENT_LEN = 150
 L1_WEIGHT = 0.001
 VOXEL_LOSS_WEIGHT = 1.5
 
-CONV_DIMS = [3, 4, 8, 16, 16, 32, 32, 32]
+CONV_DIMS = [3, 4, 4, 8, 16, 16, 32, 32]
 TEACHER_FORCING_RATIO = 0.3
 
 SAVE_EVERY_N_EPOCHS = 20
@@ -1419,7 +1419,7 @@ class MeaningMakingLightningModule(pl.LightningModule):
         ]
         optimizer = torch.optim.AdamW(params, weight_decay=0.01)
 
-        linear_warmup_epochs = 5  # Warmup for 5 epochs
+        linear_warmup_epochs = 20  # Warmup for 5 epochs
 
         linear_warmup = torch.optim.lr_scheduler.LinearLR(
             optimizer,
@@ -1555,13 +1555,13 @@ if __name__ == "__main__":
         # Determine accelerator and devices
         if torch.cuda.is_available():
             accelerator = "gpu"
-            devices = 3
+            devices = 4
             precision = '16-mixed'
             strategy = FSDPStrategy(
                 auto_wrap_policy=auto_wrap_policy,
                 # Use 'sharded' instead of 'full' for potentially better memory
                 sharding_strategy='SHARD_GRAD_OP',
-                cpu_offload=True  # Offload params to CPU to save GPU RAM
+                cpu_offload=False  # Offload params to CPU to save GPU RAM
             )
             print(f"Using {devices} GPUs with FSDP (CPU Offload).")
         else:
@@ -1593,7 +1593,7 @@ if __name__ == "__main__":
             accumulate_grad_batches=
             4,  # Accumulate gradients to simulate larger batch
             precision=precision,
-            gradient_clip_val=1.0)
+            gradient_clip_val=None)
 
         # Model Summary
         # print("Running torchinfo summary")
