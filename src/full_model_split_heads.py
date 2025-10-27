@@ -1,7 +1,7 @@
 import os
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import numpy as np
 import torch
@@ -9,7 +9,9 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchinfo
 import pytorch_lightning as pl
-from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.strategies import FSDPStrategy
+from functools import partial
+from torch.distributed.fsdp.wrap import always_wrap_policy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -892,6 +894,8 @@ if __name__ == "__main__":
             save_every_n_epochs=SAVE_EVERY_N_EPOCHS,
             max_samples_to_save=MAX_SAMPLES_TO_SAVE)
 
+        auto_wrap_policy = partial(always_wrap_policy, )
+
         trainer = pl.Trainer(
             max_epochs=MAX_EPOCHS,
             callbacks=[
@@ -909,7 +913,7 @@ if __name__ == "__main__":
             ],
             log_every_n_steps=10,
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
-            strategy=DDPStrategy(find_unused_parameters=True),
+            strategy=FSDPStrategy(auto_wrap_policy=auto_wrap_policy),
             devices=3,
             accumulate_grad_batches=4,
             precision='16-mixed' if torch.cuda.is_available() else 32,
