@@ -38,7 +38,6 @@ class SimpleTokenizer:
         tokenizer, mode = _get_sudachi_tokenizer()
         tokens = [
             m.surface()
-            m.surface()
             for m in tokenizer.tokenize(normalized, mode)
         ]
         return tokens
