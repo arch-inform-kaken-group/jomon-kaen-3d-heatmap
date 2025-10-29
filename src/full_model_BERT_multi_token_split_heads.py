@@ -5,9 +5,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 import torchinfo
 import pytorch_lightning as pl
-from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.strategies import FSDPStrategy
+from functools import partial
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -210,11 +213,14 @@ class MeaningMakingModel(nn.Module):
         batch_size = x.size(0)
         skip_features = []
         for i, block in enumerate(self.encoder_blocks):
-            x = block(x)
+            # --- APPLIED CHECKPOINTING ---
+            x = checkpoint.checkpoint(block, x, use_reentrant=False)
+            # --- END ---
             skip_features.append(x)
             x = self.pool(x)
         bottleneck_features = x
         flat_features = bottleneck_features.view(batch_size, -1)
+
         if return_bottleneck:
             return flat_features
         expert_features = []
