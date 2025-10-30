@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchinfo
 import pytorch_lightning as pl
-# from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -740,6 +740,7 @@ if __name__ == "__main__":
             #     activation_checkpointing=False,  # enable if OOM
             #     limit_all_gathers=True,
             # ),
+            strategy=DDPStrategy(find_unused_parameters=True),
             accumulate_grad_batches=4,
             precision='16-mixed' if torch.cuda.is_available() else 32,
             gradient_clip_val=1.0,
