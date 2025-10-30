@@ -380,7 +380,8 @@ class MeaningMakingLightningModule(pl.LightningModule):
 
         # Encoder auxiliary losses
         aux_emo_logits = self.model.aux_emo_classifier(flat_features)
-        emo_any = (emotion_labels > 0.1 if is_training else 0.5).float().amax(dim=(2,3,4))
+        threshold = 0.1 if is_training else 0.5
+        emo_any = (emotion_labels > threshold).float().amax(dim=(2, 3, 4))
         aux_emo_loss = F.binary_cross_entropy_with_logits(aux_emo_logits, emo_any)
 
         heat_max = heatmaps.amax(dim=(2,3,4))

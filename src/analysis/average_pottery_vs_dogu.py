@@ -302,6 +302,7 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
     
     # Group by our new 'Type' to get the final average percentages
     percentage_df = session_percentage_df.groupby('Type').mean()
+    std_df = session_percentage_df.groupby('Type').std()
 
     # --- Plotting ---
     output_dir = "pottery_dogu_analysis"
@@ -326,17 +327,56 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
         short_label_color_map.get(e, '#CCCCCC') for e in emotion_order
     ]
 
+    mean_df = percentage_df[emotion_order]
+    # std_df.columns = emotion_order  # Match column names for easier lookup
+
+
     fig, ax = plt.subplots(figsize=(10, 7))
 
     # Plot stacked bar chart
-    percentage_df[emotion_order].plot(kind='bar',
+    mean_df[emotion_order].plot(kind='bar',
                                       stacked=True,
                                       ax=ax,
                                       color=plot_colors,
                                       width=0.6)
+    
+    # Add manual error bars
+    num_indices = len(mean_df.index)
+    x_coords = np.arange(num_indices)
+
+    # Calculate cumulative heights (bottoms of segments)
+    cumulative_bottoms = mean_df.cumsum(axis=1) - mean_df
+
+    for i, emotion in enumerate(emotion_order):
+        means = mean_df[emotion]
+        stds = std_df[emotion]
+        bottoms = cumulative_bottoms[emotion]
+
+        # y-coordinate is the midpoint of the segment
+        y_midpoints = bottoms + means / 2.0
+
+        # Plot error bars (yerr is half-length, so std/2)
+        for j in range(len(stds)):
+            ax.text(x=(x_coords[j] + 0.06 + i * 0.05),
+                    y=y_midpoints.iloc[j],
+                    s=f"{stds.iloc[j]:.2f}")
+
+        ax.errorbar(
+            x=(x_coords + i * 0.05 + 0.06),
+            y=y_midpoints,
+            yerr=stds / 2.0,
+            fmt='none',  # No connecting line
+            ecolor='black',  # Error bar color
+            capsize=4,  # Cap size
+            elinewidth=1.2,  # Line width
+            alpha=0.7)  # Transparency
+    # End manual error bars
 
     # Add value labels
     for container in ax.containers:
+        if not hasattr(container, 'datavalues'):
+                continue
+        
         labels = [
             f'{v:.1f}' if v > 2 else '' for v in container.datavalues
         ]
@@ -348,25 +388,26 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
                      weight='bold')
 
     ax.set_title('Emotion Response: Pottery (No. 1-85) vs. dogu (No. 86-93)',
-                 fontsize=14,
+                 fontsize=20,
                  pad=20)
-    ax.set_ylabel('Average Percentage (%)', fontsize=12)
-    ax.set_xlabel('Artifact Type', fontsize=12)
-    ax.set_ylim(0, 100)
+    ax.set_ylabel('Average Percentage (%)', fontsize=16)
+    ax.set_xlabel('Artifact Type', fontsize=16)
+    ax.set_ymargin(0.1)
+    ax.set_ylim(-10, 110)
     ax.legend(title='Emotion', bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.xticks(rotation=0)
+    plt.xticks(rotation=0, fontsize=16)
     plt.grid(axis='y', linestyle='--', alpha=0.3)
     plt.tight_layout()
 
     # Save plot
     filename = "pottery_vs_dogu_emotion_analysis.png"
     plt.savefig(os.path.join(output_dir, filename),
-                dpi=150,
+                dpi=300,
                 bbox_inches='tight')
     plt.close(fig)
 
     # Save summary CSV
-    percentage_df.to_csv(os.path.join(output_dir, 'pottery_vs_dogu_summary.csv'))
+    mean_df.to_csv(os.path.join(output_dir, 'pottery_vs_dogu_summary.csv'))
 
     print(f"\nAnalysis complete! Results saved to '{output_dir}/' directory")
     print(f"Generated plot: {filename}")
@@ -502,11 +543,11 @@ def compute_cosine_sim_pottery_vs_dogu(
 # Main Execution
 if __name__ == "__main__":
     # === USER CONTROLS ===
-    # SELECTED_LANGUAGE = 'malaysia'
-    SELECTED_LANGUAGE = 'japan'
+    SELECTED_LANGUAGE = 'malaysia'
+    # SELECTED_LANGUAGE = 'japan'
 
-    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
-    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
+    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
+    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
     POTTERY_MODELS_DIR = "./src/pottery"
     # === END USER CONTROLS ===
 
