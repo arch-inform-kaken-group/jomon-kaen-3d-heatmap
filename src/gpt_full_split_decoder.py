@@ -632,6 +632,7 @@ if __name__ == "__main__":
                 activation_checkpointing=False,  # enable if OOM
                 limit_all_gathers=True,
             ),
+            accumulate_grad_batches=4,
             precision='16-mixed' if torch.cuda.is_available() else 32,
             gradient_clip_val=1.0,
             enable_progress_bar=True,
