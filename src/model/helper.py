@@ -38,7 +38,6 @@ class SimpleTokenizer:
         tokenizer, mode = _get_sudachi_tokenizer()
         tokens = [
             m.surface()
-            m.surface()
             for m in tokenizer.tokenize(normalized, mode)
         ]
         return tokens
@@ -393,27 +392,32 @@ class SavePredictionCallback(pl.Callback):
                             'processed_pottery_path']
                     else:
                         pottery_path = None
-                    self.save_input_pottery(inputs[i],
-                                            epoch_dir,
-                                            sample_count,
-                                            pottery_path)
-                    self.save_emotions(emotion_preds[i],
-                                       emotion_labels[i],
-                                       epoch_dir,
-                                       sample_count,
-                                       pottery_path,
-                                       input_mask=inputs[i])
-                    self.save_heatmap(heatmap_preds[i],
-                                      heatmaps[i],
-                                      epoch_dir,
-                                      sample_count,
-                                      pottery_path,
-                                      input_mask=inputs[i])
-                    self.save_caption(token_preds[i],
-                                      tokens[i],
-                                      trainer.datamodule.tokenizer,
-                                      epoch_dir,
-                                      sample_count)
+                    self.save_input_pottery(
+                        inputs[i],
+                        epoch_dir,
+                        f"{sample_count}_{val_data_paths[dataset_idx]['ID']}",
+                        pottery_path)
+                    self.save_emotions(
+                        emotion_preds[i],
+                        emotion_labels[i],
+                        epoch_dir,
+                        f"{sample_count}_{val_data_paths[dataset_idx]['ID']}",
+                        pottery_path,
+                        input_mask=inputs[i])
+                    self.save_heatmap(
+                        heatmap_preds[i],
+                        heatmaps[i],
+                        epoch_dir,
+                        f"{sample_count}_{val_data_paths[dataset_idx]['ID']}",
+                        pottery_path,
+                        input_mask=inputs[i])
+                    self.save_caption(
+                        token_preds[i],
+                        tokens[i],
+                        trainer.datamodule.tokenizer,
+                        epoch_dir,
+                        f"{sample_count}_{val_data_paths[dataset_idx]['ID']}",
+                    )
                     sample_count += 1
         pl_module.train()
         print(f"Saved {sample_count} prediction samples to {epoch_dir}")

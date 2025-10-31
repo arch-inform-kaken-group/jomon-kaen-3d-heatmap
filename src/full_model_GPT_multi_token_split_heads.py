@@ -1,13 +1,14 @@
 import os
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" 
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torchinfo
 import pytorch_lightning as pl
-from pytorch_lightning.strategies import DDPStrategy
+# from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import open3d as o3d
 from dataset.utils import filter_data_on_condition, DEFAULT_QNA_ANSWER_COLOR_MAP
@@ -19,6 +20,7 @@ from model.layers import *
 
 
 class ExtendedVoxelDataModule(pl.LightningDataModule):
+
     def __init__(self,
                  all_data_paths,
                  batch_size,
@@ -115,8 +117,8 @@ class ExtendedVoxelDataModule(pl.LightningDataModule):
             prefetch_factor=self.hparams.prefetch_factor)
 
 
+class MeaningMakingModel(pl.LightningModule):
 
-class MeaningMakingModel(nn.Module):
     def __init__(self,
                  num_emotions,
                  vocab_size,
@@ -153,8 +155,13 @@ class MeaningMakingModel(nn.Module):
             else:
                 self.emo_skip_blocks.append(
                     nn.Sequential(
-                        nn.Conv3d(out_dim, out_dim, kernel_size=3, padding=1, bias=False),
-                        nn.BatchNorm3d(out_dim), nn.ReLU()))
+                        nn.Conv3d(out_dim,
+                                  out_dim,
+                                  kernel_size=3,
+                                  padding=1,
+                                  bias=False),
+                        nn.BatchNorm3d(out_dim),
+                        nn.ReLU()))
 
         # Heatmap Stream
         self.heat_decoder_blocks = nn.ModuleList()
@@ -168,64 +175,87 @@ class MeaningMakingModel(nn.Module):
             else:
                 self.heat_skip_blocks.append(
                     nn.Sequential(
-                        nn.Conv3d(out_dim, out_dim, kernel_size=3, padding=1, bias=False),
-                        nn.BatchNorm3d(out_dim), nn.ReLU()))
+                        nn.Conv3d(out_dim,
+                                  out_dim,
+                                  kernel_size=3,
+                                  padding=1,
+                                  bias=False),
+                        nn.BatchNorm3d(out_dim),
+                        nn.ReLU()))
 
         fused_dim = up_dims[self.fusion_layer_idx] * 2
         self.fusion_conv_emo = nn.Sequential(
-            nn.Conv3d(fused_dim, up_dims[self.fusion_layer_idx], kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]), nn.ReLU())
+            nn.Conv3d(fused_dim,
+                      up_dims[self.fusion_layer_idx],
+                      kernel_size=3,
+                      padding=1,
+                      bias=False),
+            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]),
+            nn.ReLU())
         self.fusion_conv_heat = nn.Sequential(
-            nn.Conv3d(fused_dim, up_dims[self.fusion_layer_idx], kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]), nn.ReLU())
+            nn.Conv3d(fused_dim,
+                      up_dims[self.fusion_layer_idx],
+                      kernel_size=3,
+                      padding=1,
+                      bias=False),
+            nn.BatchNorm3d(up_dims[self.fusion_layer_idx]),
+            nn.ReLU())
 
         self.heatmap_head = nn.ConvTranspose3d(up_dims[-1], 1, kernel_size=1)
-        self.emotion_head = nn.ConvTranspose3d(up_dims[-1], num_emotions, kernel_size=1)
+        self.emotion_head = nn.ConvTranspose3d(up_dims[-1],
+                                               num_emotions,
+                                               kernel_size=1)
         self.emotion_pooling = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.heatmap_pooling = nn.AdaptiveAvgPool3d((1, 1, 1))
 
         visual_context_size = flat_feature_size + num_emotions + 1
         self.context_projection = nn.Sequential(
-            nn.Linear(visual_context_size, hidden_dim), nn.ReLU(), nn.Dropout(0.3))
+            nn.Linear(visual_context_size,
+                      hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3))
 
         self.vocab_size = vocab_size
         self.max_comment_len = max_comment_len
         self.embed_dim = embed_dim
 
         # Token & position embeddings (note: +1 for prefix)
-        self.token_embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        self.token_embedding = nn.Embedding(vocab_size,
+                                            embed_dim,
+                                            padding_idx=0)
         self.pos_embedding = nn.Embedding(max_comment_len + 1, embed_dim)
 
         # Project visual context to prefix token
         self.context_to_prefix = nn.Linear(hidden_dim, embed_dim)
 
         # GPT-style causal decoder
-        decoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim,
-            nhead=gpt_nhead,
-            dim_feedforward=256,
-            dropout=0.3,
-            batch_first=True,
-            activation='gelu'
-        )
-        self.gpt_decoder = nn.TransformerEncoder(decoder_layer, num_layers=gpt_num_layers)
+        decoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim,
+                                                   nhead=gpt_nhead,
+                                                   dim_feedforward=256,
+                                                   dropout=0.3,
+                                                   batch_first=True,
+                                                   activation='gelu')
+        self.gpt_decoder = nn.TransformerEncoder(decoder_layer,
+                                                 num_layers=gpt_num_layers)
         self.output_projection = nn.Linear(embed_dim, vocab_size)
 
         # Auxiliary heads
         self.aux_emo_classifier = nn.Linear(flat_feature_size, num_emotions)
         self.aux_heat_regressor = nn.Linear(flat_feature_size, 1)
         self.aux_3tok_head = nn.Sequential(
-            nn.Linear(hidden_dim, embed_dim),
+            nn.Linear(hidden_dim,
+                      embed_dim),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(embed_dim, 3 * vocab_size)
-        )
+            nn.Linear(embed_dim,
+                      3 * vocab_size))
 
         # Experts
         self.num_experts = num_experts
         self.bottleneck_dim = conv_dims[-1]
         self.experts = nn.ModuleList([
-            ExpertBlock_PersonalityBlock(self.bottleneck_dim) for _ in range(self.num_experts)
+            ExpertBlock_PersonalityBlock(self.bottleneck_dim)
+            for _ in range(self.num_experts)
         ])
 
     def _build_causal_mask(self, sz):
@@ -282,9 +312,15 @@ class MeaningMakingModel(nn.Module):
                 skip_emo = skip_features[skip_idx]
                 skip_heat = skip_features[skip_idx]
                 if emo_features.shape[2:] != skip_emo.shape[2:]:
-                    skip_emo = F.interpolate(skip_emo, size=emo_features.shape[2:], mode='trilinear', align_corners=True)
+                    skip_emo = F.interpolate(skip_emo,
+                                             size=emo_features.shape[2:],
+                                             mode='trilinear',
+                                             align_corners=True)
                 if heat_features.shape[2:] != skip_heat.shape[2:]:
-                    skip_heat = F.interpolate(skip_heat, size=heat_features.shape[2:], mode='trilinear', align_corners=True)
+                    skip_heat = F.interpolate(skip_heat,
+                                              size=heat_features.shape[2:],
+                                              mode='trilinear',
+                                              align_corners=True)
                 emo_features = torch.cat([emo_features, skip_emo], dim=1)
                 heat_features = torch.cat([heat_features, skip_heat], dim=1)
             emo_features = self.emo_skip_blocks[layer_idx](emo_features)
@@ -297,10 +333,18 @@ class MeaningMakingModel(nn.Module):
 
         emotion_preds = self.emotion_head(emo_features)
         heatmap_preds = self.heatmap_head(heat_features)
-        emotion_context = self.emotion_pooling(emotion_preds.detach()).view(batch_size, -1)
-        heatmap_context = self.heatmap_pooling(heatmap_preds.detach()).view(batch_size, -1)
+        emotion_context = self.emotion_pooling(emotion_preds.detach()).view(
+            batch_size,
+            -1)
+        heatmap_context = self.heatmap_pooling(heatmap_preds.detach()).view(
+            batch_size,
+            -1)
         flat_features = bottleneck.view(batch_size, -1)
-        visual_features = torch.cat([flat_features, emotion_context, heatmap_context], dim=1)
+        visual_features = torch.cat(
+            [flat_features,
+             emotion_context,
+             heatmap_context],
+            dim=1)
         visual_context = self.context_projection(visual_features)
 
         aux_3tok_logits = None
@@ -309,7 +353,8 @@ class MeaningMakingModel(nn.Module):
             aux_3tok_logits = aux_3tok_logits.view(-1, 3, self.vocab_size)
 
         if self.training and target_tokens is not None:
-            token_preds = self._forward_train_gpt(visual_context, target_tokens)
+            token_preds = self._forward_train_gpt(visual_context,
+                                                  target_tokens)
         else:
             token_preds = self._forward_inference_gpt(visual_context)
 
@@ -319,9 +364,10 @@ class MeaningMakingModel(nn.Module):
         B, T = target_tokens.shape
         device = target_tokens.device
 
-        prefix_emb = self.context_to_prefix(visual_context).unsqueeze(1)  # [B, 1, E]
-        token_emb = self.token_embedding(target_tokens)                   # [B, T, E]
-        input_emb = torch.cat([prefix_emb, token_emb], dim=1)             # [B, T+1, E]
+        prefix_emb = self.context_to_prefix(visual_context).unsqueeze(
+            1)  # [B, 1, E]
+        token_emb = self.token_embedding(target_tokens)  # [B, T, E]
+        input_emb = torch.cat([prefix_emb, token_emb], dim=1)  # [B, T+1, E]
 
         pos_ids = torch.arange(T + 1, device=device).unsqueeze(0).expand(B, -1)
         pos_emb = self.pos_embedding(pos_ids)
@@ -337,13 +383,16 @@ class MeaningMakingModel(nn.Module):
         device = visual_context.device
         max_len = self.max_comment_len
 
-        prefix_emb = self.context_to_prefix(visual_context).unsqueeze(1)  # [B, 1, E]
+        prefix_emb = self.context_to_prefix(visual_context).unsqueeze(
+            1)  # [B, 1, E]
         generated_embs = prefix_emb
         generated_tokens = []
 
         for t in range(max_len):
             T_curr = generated_embs.size(1)
-            pos_ids = torch.arange(T_curr, device=device).unsqueeze(0).expand(B, -1)
+            pos_ids = torch.arange(T_curr,
+                                   device=device).unsqueeze(0).expand(B,
+                                                                      -1)
             x = generated_embs + self.pos_embedding(pos_ids)
 
             causal_mask = self._build_causal_mask(T_curr).to(device)
@@ -361,7 +410,11 @@ class MeaningMakingModel(nn.Module):
         generated_tokens = torch.stack(generated_tokens, dim=1)  # [B, L]
         L = generated_tokens.size(1)
         if L < max_len:
-            pad = torch.full((B, max_len - L), 0, device=device, dtype=torch.long)
+            pad = torch.full((B,
+                              max_len - L),
+                             0,
+                             device=device,
+                             dtype=torch.long)
             generated_tokens = torch.cat([generated_tokens, pad], dim=1)
 
         logits_out = torch.zeros(B, max_len, self.vocab_size, device=device)
@@ -369,8 +422,8 @@ class MeaningMakingModel(nn.Module):
         return logits_out
 
 
-
 class MeaningMakingLightningModule(pl.LightningModule):
+
     def __init__(self,
                  model,
                  learning_rate=1e-3,
@@ -387,15 +440,30 @@ class MeaningMakingLightningModule(pl.LightningModule):
         self.save_hyperparameters(ignore=['model'])
         self.model = model
         initialize_sparse_heads(self.model)
-        self.emotion_criterion = CombinedSparseLoss(use_focal=True, use_dice=True, use_iou=True,
-                                                    focal_weight=0.5, dice_weight=1.0, iou_weight=1.0)
-        self.heatmap_criterion = CombinedSparseLoss(use_focal=True, use_dice=True, use_iou=True,
-                                                    focal_weight=1.5, dice_weight=0.5, iou_weight=0.5)
+        self.emotion_criterion = CombinedSparseLoss(use_focal=True,
+                                                    use_dice=True,
+                                                    use_iou=True,
+                                                    focal_weight=0.5,
+                                                    dice_weight=0.7,
+                                                    iou_weight=0.7,
+                                                    regression=False)
+        self.heatmap_criterion = CombinedSparseLoss(use_focal=True,
+                                                    use_dice=True,
+                                                    use_iou=True,
+                                                    focal_weight=1.2,
+                                                    dice_weight=0.5,
+                                                    iou_weight=0.5,
+                                                    regression=True)
         self.emo_sparsity = self.hparams.nonzero_emo_target
         self.heat_sparsity = self.hparams.nonzero_heat_target
-        self.nonzero_reg_emo = NonZeroRegularization(weight=0.5, target_sparsity=self.hparams.nonzero_emo_target)
-        self.nonzero_reg_heat = NonZeroRegularization(weight=0.05, target_sparsity=self.hparams.nonzero_heat_target)
-        self.token_criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
+        self.nonzero_reg_emo = NonZeroRegularization(
+            weight=0.5,
+            target_sparsity=self.hparams.nonzero_emo_target)
+        self.nonzero_reg_heat = NonZeroRegularization(
+            weight=0.05,
+            target_sparsity=self.hparams.nonzero_heat_target)
+        self.token_criterion = nn.CrossEntropyLoss(ignore_index=0,
+                                                   label_smoothing=0.1)
         self.voxel_loss_weight = self.hparams.voxel_loss_weight
         self.aux_3tok_weight = aux_3tok_weight
         self.val_data_paths = []
@@ -422,8 +490,12 @@ class MeaningMakingLightningModule(pl.LightningModule):
         # Encoder auxiliary losses
         aux_emo_logits = self.model.aux_emo_classifier(flat_features)
         emo_any_threshold = 0.1 if is_training else 0.5
-        emo_any = (emotion_labels > emo_any_threshold).float().amax(dim=(2, 3, 4))
-        aux_emo_loss = F.binary_cross_entropy_with_logits(aux_emo_logits, emo_any)
+        emo_any = (emotion_labels > emo_any_threshold).float().amax(dim=(2,
+                                                                         3,
+                                                                         4))
+        aux_emo_loss = F.binary_cross_entropy_with_logits(
+            aux_emo_logits,
+            emo_any)
         heat_max = heatmaps.amax(dim=(2, 3, 4))
         aux_heat_pred_raw = self.model.aux_heat_regressor(flat_features)
         aux_heat_loss = F.mse_loss(torch.sigmoid(aux_heat_pred_raw), heat_max)
@@ -440,24 +512,34 @@ class MeaningMakingLightningModule(pl.LightningModule):
             target_seq_len = self.model.max_comment_len
             tok_target = tokens
             if pred_seq_len < target_seq_len:
-                padding = torch.zeros(tok_pred.size(0), target_seq_len - pred_seq_len, tok_pred.size(2), device=tok_pred.device)
+                padding = torch.zeros(tok_pred.size(0),
+                                      target_seq_len - pred_seq_len,
+                                      tok_pred.size(2),
+                                      device=tok_pred.device)
                 tok_pred = torch.cat([tok_pred, padding], dim=1)
             elif pred_seq_len > target_seq_len:
                 tok_pred = tok_pred[:, :target_seq_len, :]
             if tok_target.size(1) > target_seq_len:
                 tok_target = tok_target[:, :target_seq_len]
             elif tok_target.size(1) < target_seq_len:
-                pad = torch.zeros(tok_target.size(0), target_seq_len - tok_target.size(1), dtype=torch.long, device=tok_target.device)
+                pad = torch.zeros(tok_target.size(0),
+                                  target_seq_len - tok_target.size(1),
+                                  dtype=torch.long,
+                                  device=tok_target.device)
                 tok_target = torch.cat([tok_target, pad], dim=1)
 
-            loss_tok = self.token_criterion(tok_pred.reshape(-1, self.model.vocab_size), tok_target.reshape(-1)) * text_scale
+            loss_tok = self.token_criterion(
+                tok_pred.reshape(-1,
+                                 self.model.vocab_size),
+                tok_target.reshape(-1)) * text_scale
             nonzero_emo = self.nonzero_reg_emo(emo_pred)
             nonzero_heat = self.nonzero_reg_heat(heat_pred)
             l1_emo = F.l1_loss(torch.sigmoid(emo_pred), emotion_labels)
             l1_heat = F.l1_loss(torch.sigmoid(heat_pred), heatmaps)
             weighted_emo = self.hparams.emo_loss_weight * loss_emo
             weighted_heat = self.hparams.heat_loss_weight * loss_heat
-            global_loss = self.hparams.global_loss_weight * (loss_emo + loss_heat + loss_tok)
+            global_loss = self.hparams.global_loss_weight * (
+                loss_emo + loss_heat + loss_tok)
             voxel_loss = (weighted_emo + weighted_heat + global_loss +
                           nonzero_emo + nonzero_heat +
                           self.hparams.l1_weight * 0.5 * (l1_emo + l1_heat))
@@ -466,14 +548,17 @@ class MeaningMakingLightningModule(pl.LightningModule):
             if is_training and aux_3tok_logits is not None:
                 target_3 = tokens[:, 1:4]
                 if target_3.size(1) < 3:
-                    pad = torch.zeros(target_3.size(0), 3 - target_3.size(1), dtype=torch.long, device=target_3.device)
+                    pad = torch.zeros(target_3.size(0),
+                                      3 - target_3.size(1),
+                                      dtype=torch.long,
+                                      device=target_3.device)
                     target_3 = torch.cat([target_3, pad], dim=1)
                 aux_3tok_loss = F.cross_entropy(
-                    aux_3tok_logits.reshape(-1, self.model.vocab_size),
+                    aux_3tok_logits.reshape(-1,
+                                            self.model.vocab_size),
                     target_3.reshape(-1),
                     ignore_index=0,
-                    label_smoothing=0.1
-                ) * text_scale * self.aux_3tok_weight
+                    label_smoothing=0.1) * text_scale * self.aux_3tok_weight
 
             aux_3tok_losses.append(aux_3tok_loss)
             expert_specific_loss = self.hparams.voxel_loss_weight * voxel_loss + loss_tok + aux_3tok_loss
@@ -483,9 +568,14 @@ class MeaningMakingLightningModule(pl.LightningModule):
         best_idx = torch.argmin(branch_losses).item()
         if is_training:
             best_loss = branch_losses[best_idx]
-            other_losses_detached = sum(loss.detach() for i, loss in enumerate(branch_losses) if i != best_idx)
+            other_losses_detached = sum(loss.detach()
+                                        for i, loss in enumerate(branch_losses)
+                                        if i != best_idx)
             total_loss = best_loss + other_losses_detached + aux_loss
-            self.log("train_best_expert", float(best_idx), on_step=True, on_epoch=False)
+            self.log("train_best_expert",
+                     float(best_idx),
+                     on_step=True,
+                     on_epoch=False)
         else:
             total_loss = branch_losses[best_idx] + aux_loss
 
@@ -496,38 +586,55 @@ class MeaningMakingLightningModule(pl.LightningModule):
         target_seq_len = self.model.max_comment_len
         tok_target = tokens
         if pred_seq_len < target_seq_len:
-            padding = torch.zeros(token_preds.size(0), target_seq_len - pred_seq_len, token_preds.size(2), device=token_preds.device)
+            padding = torch.zeros(token_preds.size(0),
+                                  target_seq_len - pred_seq_len,
+                                  token_preds.size(2),
+                                  device=token_preds.device)
             token_preds = torch.cat([token_preds, padding], dim=1)
         elif pred_seq_len > target_seq_len:
             token_preds = token_preds[:, :target_seq_len, :]
         if tok_target.size(1) > target_seq_len:
             tok_target = tok_target[:, :target_seq_len]
         elif tok_target.size(1) < target_seq_len:
-            pad = torch.zeros(tok_target.size(0), target_seq_len - tok_target.size(1), dtype=torch.long, device=tok_target.device)
+            pad = torch.zeros(tok_target.size(0),
+                              target_seq_len - tok_target.size(1),
+                              dtype=torch.long,
+                              device=tok_target.device)
             tok_target = torch.cat([tok_target, pad], dim=1)
-        loss_tok = self.token_criterion(token_preds.reshape(-1, self.model.vocab_size), tok_target.reshape(-1)) * text_scale
+        loss_tok = self.token_criterion(
+            token_preds.reshape(-1,
+                                self.model.vocab_size),
+            tok_target.reshape(-1)) * text_scale
         nonzero_emo = self.nonzero_reg_emo(emotion_preds)
         nonzero_heat = self.nonzero_reg_heat(heatmap_preds)
         l1_emo = F.l1_loss(torch.sigmoid(emotion_preds), emotion_labels)
         l1_heat = F.l1_loss(torch.sigmoid(heatmap_preds), heatmaps)
-        logged_aux_3tok_loss = aux_3tok_losses[best_idx] if is_training else torch.tensor(0.0, device=flat_features.device)
+        logged_aux_3tok_loss = aux_3tok_losses[
+            best_idx] if is_training else torch.tensor(
+                0.0,
+                device=flat_features.device)
 
         return total_loss, loss_emo, loss_heat, loss_tok, l1_emo, l1_heat, emotion_preds, heatmap_preds, nonzero_emo, nonzero_heat, aux_loss, logged_aux_3tok_loss
 
     def training_step(self, batch, batch_idx):
         loss, l_emo, l_heat, l_tok, l1_emo, l1_heat, _, _, nz_emo, nz_heat, aux_loss, aux_3tok_loss = self._shared_step(batch, is_training=True)
-        self.log_dict({
-            'train_loss': loss,
-            'train_emo': l_emo,
-            'train_heat': l_heat,
-            'train_tok': l_tok,
-            'train_l1_emo': l1_emo,
-            'train_l1_heat': l1_heat,
-            'train_nonzero_emo': nz_emo,
-            'train_nonzero_heat': nz_heat,
-            'train_aux_loss': aux_loss,
-            'train_aux_3tok_loss': aux_3tok_loss,
-        }, prog_bar=True, on_step=True, on_epoch=True, batch_size=batch[0].size(0))
+        self.log_dict(
+            {
+                'train_loss': loss,
+                'train_emo': l_emo,
+                'train_heat': l_heat,
+                'train_tok': l_tok,
+                'train_l1_emo': l1_emo,
+                'train_l1_heat': l1_heat,
+                'train_nonzero_emo': nz_emo,
+                'train_nonzero_heat': nz_heat,
+                'train_aux_loss': aux_loss,
+                'train_aux_3tok_loss': aux_3tok_loss,
+            },
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            batch_size=batch[0].size(0))
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -537,32 +644,45 @@ class MeaningMakingLightningModule(pl.LightningModule):
         heatmaps = heatmaps.float()
         emotion_pred_binary = (torch.sigmoid(emotion_preds) > 0.5).float()
         emo_target_binary = (emotion_labels > 0.5).float()
-        emo_iou = (emotion_pred_binary * emo_target_binary).sum() / ((emotion_pred_binary + emo_target_binary).clamp(0, 1).sum() + 1e-6)
+        emo_iou = (emotion_pred_binary * emo_target_binary).sum() / (
+            (emotion_pred_binary + emo_target_binary).clamp(0,
+                                                            1).sum() + 1e-6)
         heat_pred_binary = (torch.sigmoid(heatmap_preds) > 0.5).float()
         heat_target_binary = (heatmaps > 0.1).float()
-        heat_iou = (heat_pred_binary * heat_target_binary).sum() / ((heat_pred_binary + heat_target_binary).clamp(0, 1).sum() + 1e-6)
-        self.log_dict({
-            'val_loss': loss,
-            'val_emo': l_emo,
-            'val_heat': l_heat,
-            'val_tok': l_tok,
-            'val_l1_emo': l1_emo,
-            'val_l1_heat': l1_heat,
-            'val_nonzero_emo': nz_emo,
-            'val_nonzero_heat': nz_heat,
-            'val_aux_loss': aux_loss,
-            'val_emo_iou_metric': emo_iou,
-            'val_heat_iou_metric': heat_iou,
-            'val_emo_pred_mean': torch.sigmoid(emotion_preds).mean(),
-            'val_heat_pred_mean': torch.sigmoid(heatmap_preds).mean(),
-        }, prog_bar=True, on_step=False, on_epoch=True, batch_size=batch[0].size(0))
+        heat_iou = (heat_pred_binary * heat_target_binary).sum() / (
+            (heat_pred_binary + heat_target_binary).clamp(0,
+                                                          1).sum() + 1e-6)
+        self.log_dict(
+            {
+                'val_loss': loss,
+                'val_emo': l_emo,
+                'val_heat': l_heat,
+                'val_tok': l_tok,
+                'val_l1_emo': l1_emo,
+                'val_l1_heat': l1_heat,
+                'val_nonzero_emo': nz_emo,
+                'val_nonzero_heat': nz_heat,
+                'val_aux_loss': aux_loss,
+                'val_emo_iou_metric': emo_iou,
+                'val_heat_iou_metric': heat_iou,
+                'val_emo_pred_mean': torch.sigmoid(emotion_preds).mean(),
+                'val_heat_pred_mean': torch.sigmoid(heatmap_preds).mean(),
+            },
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch[0].size(0))
         if batch_idx == 0 and self.global_rank == 0:
             emo_mean = torch.sigmoid(emotion_preds).mean().item()
             heat_mean = torch.sigmoid(heatmap_preds).mean().item()
             if emo_mean < self.emo_sparsity:
-                print(f"[Rank {self.global_rank}] WARNING: Emotion pred mean = {emo_mean:.6f}. Lower than data sparsity {self.emo_sparsity:.6f}")
+                print(
+                    f"[Rank {self.global_rank}] WARNING: Emotion pred mean = {emo_mean:.6f}. Lower than data sparsity {self.emo_sparsity:.6f}"
+                )
             if heat_mean < self.heat_sparsity:
-                print(f"[Rank {self.global_rank}] WARNING: Heatmap pred mean = {heat_mean:.6f}. Lower than data sparsity {self.heat_sparsity:.6f}")
+                print(
+                    f"[Rank {self.global_rank}] WARNING: Heatmap pred mean = {heat_mean:.6f}. Lower than data sparsity {self.heat_sparsity:.6f}"
+                )
 
     def configure_optimizers(self):
         params = [
@@ -576,10 +696,10 @@ class MeaningMakingLightningModule(pl.LightningModule):
             {'params': self.model.emotion_head.parameters(), 'lr': self.hparams.learning_rate * 1.5},
             {'params': self.model.heatmap_head.parameters(), 'lr': self.hparams.learning_rate * 1.5},
             {'params': self.model.token_embedding.parameters(), 'lr': self.hparams.learning_rate * 0.5},
-            {'params': self.model.gpt_decoder.parameters(), 'lr': self.hparams.learning_rate},  # ← updated
+            {'params': self.model.gpt_decoder.parameters(), 'lr': self.hparams.learning_rate},
             {'params': self.model.output_projection.parameters(), 'lr': self.hparams.learning_rate},
             {'params': self.model.context_projection.parameters(), 'lr': self.hparams.learning_rate},
-            {'params': self.model.context_to_prefix.parameters(), 'lr': self.hparams.learning_rate},  # ← updated name
+            {'params': self.model.context_to_prefix.parameters(), 'lr': self.hparams.learning_rate},
             {'params': self.model.aux_emo_classifier.parameters(), 'lr': self.hparams.learning_rate * 0.8},
             {'params': self.model.aux_heat_regressor.parameters(), 'lr': self.hparams.learning_rate * 0.8},
             {'params': self.model.aux_3tok_head.parameters(), 'lr': self.hparams.learning_rate * 0.8},
@@ -587,12 +707,26 @@ class MeaningMakingLightningModule(pl.LightningModule):
         ]
         optimizer = torch.optim.AdamW(params, weight_decay=0.01)
         linear_warmup_epochs = 30
-        linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, end_factor=1.0, total_iters=linear_warmup_epochs)
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=MAX_EPOCHS - linear_warmup_epochs, eta_min=1e-6)
-        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [linear_warmup, cosine_scheduler], milestones=[linear_warmup_epochs])
+        linear_warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.01,
+            end_factor=1.0,
+            total_iters=linear_warmup_epochs)
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=MAX_EPOCHS - linear_warmup_epochs,
+            eta_min=1e-6)
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            [linear_warmup,
+             cosine_scheduler],
+            milestones=[linear_warmup_epochs])
         return {
             'optimizer': optimizer,
-            'lr_scheduler': {'scheduler': scheduler, 'interval': 'epoch'}
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'interval': 'epoch'
+            }
         }
 
     def on_validation_start(self):
@@ -618,7 +752,9 @@ if __name__ == "__main__":
         limit=1000,
     )
     if len(all_data_paths) == 0:
-        print("ERROR: No data files found after filtering. Please check paths and data.")
+        print(
+            "ERROR: No data files found after filtering. Please check paths and data."
+        )
     else:
         pl.seed_everything(42)
         torch.set_float32_matmul_precision('high')
@@ -661,8 +797,15 @@ if __name__ == "__main__":
         trainer = pl.Trainer(
             max_epochs=MAX_EPOCHS,
             callbacks=[
-                EarlyStopping(monitor='val_loss', patience=EARLY_STOPPING_PATIENCE, mode='min', verbose=True),
-                ModelCheckpoint(monitor='val_loss', save_top_k=3, every_n_epochs=20, save_last=True, mode='min',
+                EarlyStopping(monitor='val_loss',
+                              patience=EARLY_STOPPING_PATIENCE,
+                              mode='min',
+                              verbose=True),
+                ModelCheckpoint(monitor='val_loss',
+                                save_top_k=3,
+                                every_n_epochs=20,
+                                save_last=True,
+                                mode='min',
                                 filename='model-{epoch:02d}-{val_loss:.4f}'),
                 prediction_saver
             ],
@@ -673,14 +816,23 @@ if __name__ == "__main__":
             gradient_clip_val=1.0)
         print("Running torchinfo summary")
         try:
-            torchinfo.summary(model, input_size=(BATCH_SIZE, 3, VOXEL_RESOLUTION, VOXEL_RESOLUTION, VOXEL_RESOLUTION))
+            torchinfo.summary(model,
+                              input_size=(BATCH_SIZE,
+                                          3,
+                                          VOXEL_RESOLUTION,
+                                          VOXEL_RESOLUTION,
+                                          VOXEL_RESOLUTION))
         except Exception as e:
             print(f"torchinfo summary failed: {e}")
         if VISUALIZE_SAMPLES:
             show_n_samples(datamodule, NUM_SAMPLES)
         print("\nChecking Data Sparsity")
-        print(f"Emotion target sparsity: {actual_emo_sparsity:.6f} ({actual_emo_sparsity*100:.4f}%)")
-        print(f"Heatmap target sparsity: {actual_heat_sparsity:.6f} ({actual_heat_sparsity*100:.4f}%)")
+        print(
+            f"Emotion target sparsity: {actual_emo_sparsity:.6f} ({actual_emo_sparsity*100:.4f}%)"
+        )
+        print(
+            f"Heatmap target sparsity: {actual_heat_sparsity:.6f} ({actual_heat_sparsity*100:.4f}%)"
+        )
         if emo_labels.sum() == 0:
             print("CRITICAL: Emotion labels in batch are ALL ZERO.")
         if heat_labels.sum() == 0:

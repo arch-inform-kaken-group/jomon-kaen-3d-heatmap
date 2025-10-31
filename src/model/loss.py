@@ -86,6 +86,7 @@ class CombinedSparseLoss(nn.Module):
         focal_weight=1.0,
         dice_weight=1.0,
         iou_weight=1.0,
+        regression=False,
     ):
         super().__init__()
         self.use_focal = use_focal
@@ -103,6 +104,12 @@ class CombinedSparseLoss(nn.Module):
 
         if use_iou:
             self.iou_loss = IoULoss(smooth=1.0)
+
+        self.regression = regression
+        if regression:
+            self.criterion = F.mse_loss
+        else:
+            self.criterion = F.binary_cross_entropy_with_logits
 
     def forward(self, inputs, targets):
         total_loss = 0.0
@@ -124,6 +131,11 @@ class CombinedSparseLoss(nn.Module):
             iou = self.iou_loss(inputs, targets)
             total_loss += self.iou_weight * iou
             losses['iou'] = iou
+
+        if self.regression:
+            total_loss += self.criterion(inputs, targets) * 0.2
+        else:
+            total_loss += self.criterion(inputs, targets)
 
         losses['combined'] = total_loss
 
