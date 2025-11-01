@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import japanize_matplotlib
+import japanize_matplotlib # Re-added for your local execution
 import os
 from pathlib import Path
 from tqdm import tqdm
@@ -167,6 +167,10 @@ def find_data_paths_detailed(root: str,
     print(f"\nCHECKING RAW DATA PATHS")
     limit_dict = {pid: 0 for pid in pottery_ids}
 
+    # Check if root is a directory before listing
+    if not os.path.isdir(root):
+         raise ValueError(f"Root path is not a directory: {root}")
+
     for g in os.listdir(root):
         group_path = root / g
         if not os.path.isdir(group_path):
@@ -192,7 +196,7 @@ def find_data_paths_detailed(root: str,
 
 
 def load_combined_qna_data(root_dir: str,
-                             pottery_models_dir: str) -> pd.DataFrame:
+                           pottery_models_dir: str) -> pd.DataFrame:
     """Loads and combines all QnA data from CSV files."""
     data_to_process = find_data_paths_detailed(
         root=root_dir, pottery_path_str=pottery_models_dir)
@@ -220,7 +224,7 @@ def load_combined_qna_data(root_dir: str,
 
 
 def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
-                                language: str = 'malaysia'):
+                            language: str = 'malaysia'):
     """
     Analyzes and plots emotion responses, comparing Pottery (1-85) vs. 
     dogus (86-93).
@@ -283,8 +287,18 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
         print("No data found for Pottery or dogu types. Exiting.")
         return
         
-    print(f"\nFound {len(analysis_df[analysis_df['Type'] == 'Pottery'])} responses for Pottery.")
-    print(f"Found {len(analysis_df[analysis_df['Type'] == 'dogu'])} responses for dogu.")
+    # START
+    # Get data instance counts (unique session/pottery pairs)
+    pottery_df = analysis_df[analysis_df['Type'] == 'Pottery']
+    dogu_df = analysis_df[analysis_df['Type'] == 'dogu']
+
+    # Count unique (session_id, pottery_id) tuples for each type
+    pottery_count = len(pottery_df[['session_id', 'pottery_id']].drop_duplicates())
+    dogu_count = len(dogu_df[['session_id', 'pottery_id']].drop_duplicates())
+        
+    print(f"\nFound {pottery_count} data instances for Pottery.")
+    print(f"Found {dogu_count} data instances for dogu.")
+    
 
     # Calculate percentage by event count (session-normalized)
     session_counts_df = pd.crosstab(
@@ -335,10 +349,10 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
 
     # Plot stacked bar chart
     mean_df[emotion_order].plot(kind='bar',
-                                      stacked=True,
-                                      ax=ax,
-                                      color=plot_colors,
-                                      width=0.6)
+                                    stacked=True,
+                                    ax=ax,
+                                    color=plot_colors,
+                                    width=0.6)
     
     # Add manual error bars
     num_indices = len(mean_df.index)
@@ -348,6 +362,10 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
     cumulative_bottoms = mean_df.cumsum(axis=1) - mean_df
 
     for i, emotion in enumerate(emotion_order):
+        if emotion not in std_df.columns:
+             print(f"Warning: Emotion '{emotion}' not found in std_df. Skipping error bars for it.")
+             continue # Skip if emotion has no variance data
+        
         means = mean_df[emotion]
         stds = std_df[emotion]
         bottoms = cumulative_bottoms[emotion]
@@ -357,9 +375,10 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
 
         # Plot error bars (yerr is half-length, so std/2)
         for j in range(len(stds)):
-            ax.text(x=(x_coords[j] + 0.06 + i * 0.05),
-                    y=y_midpoints.iloc[j],
-                    s=f"{stds.iloc[j]:.2f}")
+            if pd.notna(stds.iloc[j]): # Check if std is not NaN
+                ax.text(x=(x_coords[j] + 0.06 + i * 0.05),
+                        y=y_midpoints.iloc[j],
+                        s=f"{stds.iloc[j]:.2f}")
 
         ax.errorbar(
             x=(x_coords + i * 0.05 + 0.06),
@@ -391,7 +410,13 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
                  fontsize=20,
                  pad=20)
     ax.set_ylabel('Average Percentage (%)', fontsize=16)
-    ax.set_xlabel('Artifact Type', fontsize=16)
+    
+    # (Uses the new 'pottery_count' and 'dogu_count' vars)
+    # Add counts to the x-label
+    xlabel_text = f'Artifact Type (Pottery N={pottery_count}, dogu N={dogu_count})'
+    ax.set_xlabel(xlabel_text, fontsize=16)
+    
+    
     ax.set_ymargin(0.1)
     ax.set_ylim(-10, 110)
     ax.legend(title='Emotion', bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -421,8 +446,8 @@ def compute_cosine_sim_pottery_vs_dogu(
 ):
     """
     Compute cosine similarities between Japan and Malaysia for:
-      - Pottery (assigned numbers 1–85)
-      - dogu (assigned numbers 86–93)
+      - Pottery (assigned numbers 1-85)
+      - dogu (assigned numbers 86-93)
     Both WITH and WITHOUT the 'Interesting' emotion.
     """
     import numpy as np
@@ -463,6 +488,9 @@ def compute_cosine_sim_pottery_vs_dogu(
     emotion_order_no_interest = ["Beautiful", "Strange", "Scary", "Feel nothing"]
 
     def get_mean_vector(df, group_col, emotions):
+        if df.empty:
+            return pd.DataFrame(columns=emotions) # Return empty df if no data
+        
         session_counts = pd.crosstab(
             [df[group_col], df['session_id']],
             df['short_answer']
@@ -471,7 +499,13 @@ def compute_cosine_sim_pottery_vs_dogu(
         for e in emotions:
             if e not in session_counts.columns:
                 session_counts[e] = 0
-        session_pct = session_counts[emotions].div(session_counts.sum(axis=1), axis=0) * 100
+        
+        # Ensure sum is not zero before dividing
+        session_sums = session_counts.sum(axis=1)
+        # Replace 0 sums with 1 to avoid division by zero (will result in 0% anyway)
+        session_sums[session_sums == 0] = 1
+        
+        session_pct = session_counts[emotions].div(session_sums, axis=0) * 100
         return session_pct.groupby(group_col).mean()
 
     # Mean vectors: rows = ['Pottery', 'dogu'], cols = emotions
@@ -490,13 +524,13 @@ def compute_cosine_sim_pottery_vs_dogu(
     results = {}
     for artifact_type in ['Pottery', 'dogu']:
         # With Interesting
-        vec_jp_full = jp_full.loc[artifact_type].values if artifact_type in jp_full.index else np.zeros(5)
-        vec_my_full = my_full.loc[artifact_type].values if artifact_type in my_full.index else np.zeros(5)
+        vec_jp_full = jp_full.loc[artifact_type].values if artifact_type in jp_full.index else np.zeros(len(emotion_order_full))
+        vec_my_full = my_full.loc[artifact_type].values if artifact_type in my_full.index else np.zeros(len(emotion_order_full))
         sim_full = safe_cosine(vec_jp_full, vec_my_full)
 
         # Without Interesting
-        vec_jp_no = jp_no_int.loc[artifact_type].values if artifact_type in jp_no_int.index else np.zeros(4)
-        vec_my_no = my_no_int.loc[artifact_type].values if artifact_type in my_no_int.index else np.zeros(4)
+        vec_jp_no = jp_no_int.loc[artifact_type].values if artifact_type in jp_no_int.index else np.zeros(len(emotion_order_no_interest))
+        vec_my_no = my_no_int.loc[artifact_type].values if artifact_type in my_no_int.index else np.zeros(len(emotion_order_no_interest))
         sim_no = safe_cosine(vec_jp_no, vec_my_no)
 
         results[artifact_type] = {
@@ -531,7 +565,7 @@ def compute_cosine_sim_pottery_vs_dogu(
             'Japan_Full_Vector': str(data['Japan_Vector_Full']),
             'Malaysia_Full_Vector': str(data['Malaysia_Vector_Full']),
             'Japan_NoInt_Vector': str(data['Japan_Vector_NoInt']),
-            'Malaysia_NoInt_Vector': str(data['Malaysia_Vector_NoInt']),
+            'Malaysia_NoInt_Vector': str(data['Malaysia_NoInt_Vector']),
         })
     detail_df = pd.DataFrame(detail_rows)
     detail_df.to_csv("pottery_dogu_cosine_similarities.csv", index=False)
@@ -542,14 +576,14 @@ def compute_cosine_sim_pottery_vs_dogu(
 
 # Main Execution
 if __name__ == "__main__":
-    # === USER CONTROLS ===
+    # USER CONTROLS
     SELECTED_LANGUAGE = 'malaysia'
     # SELECTED_LANGUAGE = 'japan'
 
     DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
     # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
     POTTERY_MODELS_DIR = "./src/pottery"
-    # === END USER CONTROLS ===
+    # END USER CONTROLS
 
     try:
         # Load emotion data

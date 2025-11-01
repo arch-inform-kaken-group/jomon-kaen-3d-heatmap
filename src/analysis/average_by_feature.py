@@ -348,6 +348,10 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
     # Analyze binary features
     for feature in tqdm(feature_columns, desc="Processing binary features"):
         fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Initialize count dictionary
+        counts_dict = {}
+        
 
         # Split data by feature value (0 or 1)
         # 'merged_df' contains individual pottery percentages
@@ -358,17 +362,24 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
             if len(group) == 0:
                 continue
 
+            # Store label and count
+            label = 'Yes' if value == 1.0 else 'No'
+            counts_dict[label] = len(group['session_id'].unique()) # Count unique sessions
+            
+            
             # Calculate average and std of emotion percentages for this group
             emotion_avgs = group[emotion_order].mean()
-            emotion_stds = group[emotion_order].std()  # ADDED STD CALCULATION
+            emotion_stds = group[emotion_order].std() 
 
             result_row = {
-                'value': 'Yes' if value == 1.0 else 'No',
+                # Use label variable
+                'value': label,
+                
                 **emotion_avgs.to_dict(),
                 **{
                     f"{e}_std": emotion_stds[e]
                     for e in emotion_order
-                }  # ADDED STD TO RESULTS
+                } 
             }
             results.append(result_row)
 
@@ -377,6 +388,14 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
             continue
 
         results_df = pd.DataFrame(results).set_index('value')
+        
+        # Ensure 'No' and 'Yes' order for plotting
+        if 'No' in results_df.index and 'Yes' in results_df.index:
+             results_df = results_df.reindex(['No', 'Yes'])
+        elif 'No' in results_df.index:
+             results_df = results_df.reindex(['No'])
+        elif 'Yes' in results_df.index:
+             results_df = results_df.reindex(['Yes'])
 
         # Separate mean and std data for plotting
         mean_df = results_df[emotion_order]
@@ -441,7 +460,14 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
                      fontsize=20,
                      pad=20)
         ax.set_ylabel('Average Percentage (%)', fontsize=16)
-        ax.set_xlabel('Feature Present', fontsize=16)
+        
+        # Set x-label with counts
+        count_no = counts_dict.get('No', 0)
+        count_yes = counts_dict.get('Yes', 0)
+        xlabel_with_counts = f'Feature Present (No: {count_no}, Yes: {count_yes})'
+        ax.set_xlabel(xlabel_with_counts, fontsize=16)
+        
+        
         ax.set_ymargin(0.1)
         ax.set_ylim(-10, 110)
         ax.legend(title='Emotion', bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -478,15 +504,15 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
             if len(group) < 2:  # Skip if too few samples
                 continue
             emotion_avgs = group[emotion_order].mean()
-            emotion_stds = group[emotion_order].std()  # ADDED STD CALCULATION
+            emotion_stds = group[emotion_order].std() 
             shape_results.append({
                 'shape_type': shape,
-                'count': len(group),
+                'count': len(group['session_id'].unique()), # Count unique sessions
                 **emotion_avgs.to_dict(),
                 **{
                     f"{e}_std": emotion_stds[e]
                     for e in emotion_order
-                }  # ADDED STD TO RESULTS
+                } 
             })
 
         if shape_results:
@@ -560,7 +586,26 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
             ax.legend(title='Emotion',
                       bbox_to_anchor=(1.05, 1),
                       loc='upper left')
-            plt.xticks(rotation=45, ha='right')
+            
+            # Add counts to x-tick labels
+            try:
+                # Get current labels from the plot
+                current_labels = [item.get_text() for item in ax.get_xticklabels()]
+                
+                # Get counts from the dataframe, ensuring order matches plot
+                counts = shape_df.reindex(current_labels)['count'].values
+                
+                # Create new labels with counts
+                new_labels = [f'{label}\n(n={int(count)})' for label, count in zip(current_labels, counts)]
+                
+                # Set new labels
+                ax.set_xticklabels(new_labels, rotation=45, ha='right')
+            except Exception as e:
+                print(f"Warning: Could not add counts to shape plot labels. Error: {e}")
+                # Fallback to original rotation
+                plt.xticks(rotation=45, ha='right')
+            
+            
             plt.grid(axis='y', linestyle='--', alpha=0.3)
             plt.tight_layout()
 
@@ -825,13 +870,13 @@ def compute_cosine_similarities_with_interesting(
 # Main Execution
 if __name__ == "__main__":
     # USER CONTROLS
-    SELECTED_LANGUAGE = 'malaysia'
-    # SELECTED_LANGUAGE = 'japan'
+    # SELECTED_LANGUAGE = 'malaysia'
+    SELECTED_LANGUAGE = 'japan'
     POTTERY_SELECTION = []  # Empty list for all pottery
     INCLUDE_POTTERY = True
 
-    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
-    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
+    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
+    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
     POTTERY_MODELS_DIR = "./src/pottery"
     FEATURES_CSV = "./src/analysis/DS_Labels_Cleaned.csv"
 
