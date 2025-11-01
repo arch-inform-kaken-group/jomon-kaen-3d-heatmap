@@ -497,12 +497,12 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
             shape_std_df = shape_df[[f"{e}_std" for e in emotion_order]]
             shape_std_df.columns = emotion_order
 
-            fig, ax = plt.subplots(figsize=(14, 8))
+            fig, ax = plt.subplots(figsize=(21, 8))
             shape_mean_df.plot(kind='bar',
                                stacked=True,
                                ax=ax,
                                color=plot_colors,
-                               width=0.7)
+                               width=0.82)
 
             # Add manual error bars for shapes
             num_shape_indices = len(shape_mean_df.index)
@@ -518,7 +518,13 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
 
                 shape_y_midpoints = shape_bottoms + shape_means / 2.0
 
-                ax.errorbar(x=(shape_x_coords + i * 0.05),
+                # Plot error bars (yerr is half-length, so std/2)
+                for j in range(len(shape_stds)):
+                    ax.text(x=(shape_x_coords[j] + 0.125 + i * 0.055),
+                            y=shape_y_midpoints.iloc[j],
+                            s=f"{shape_stds.iloc[j]:.2f}")
+
+                ax.errorbar(x=(shape_x_coords + i * 0.055 + 0.125),
                             y=shape_y_midpoints,
                             yerr=shape_stds / 2.0,
                             fmt='none',
@@ -560,7 +566,7 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
 
             plt.savefig(
                 os.path.join(output_dir, 'shape_type_emotion_analysis.png'),
-                dpi=300,  # INCREASED RESOLUTION
+                dpi=700,
                 bbox_inches='tight')
             plt.close(fig)
 
@@ -818,14 +824,14 @@ def compute_cosine_similarities_with_interesting(
 
 # Main Execution
 if __name__ == "__main__":
-    # === USER CONTROLS ===
-    # SELECTED_LANGUAGE = 'malaysia'
-    SELECTED_LANGUAGE = 'japan'
+    # USER CONTROLS
+    SELECTED_LANGUAGE = 'malaysia'
+    # SELECTED_LANGUAGE = 'japan'
     POTTERY_SELECTION = []  # Empty list for all pottery
     INCLUDE_POTTERY = True
 
-    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
-    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
+    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
+    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
     POTTERY_MODELS_DIR = "./src/pottery"
     FEATURES_CSV = "./src/analysis/DS_Labels_Cleaned.csv"
 
@@ -843,7 +849,7 @@ if __name__ == "__main__":
 
     # Include shape type analysis?
     INCLUDE_SHAPE_TYPE_ANALYSIS = True
-    # === END USER CONTROLS ===
+    # END USER CONTROLS
 
     try:
         # Load emotion data

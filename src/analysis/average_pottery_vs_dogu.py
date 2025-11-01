@@ -255,7 +255,7 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
     combined_df['short_answer'] = combined_df['answer'].map(
         EMOTION_SHORT_LABEL_MAP)
     
-    # --- New Grouping Logic ---
+    # New Grouping Logic
     # Extract assigned number from pottery_id (e.g., "AS0001(1)" -> "1")
     combined_df['assigned_num_str'] = combined_df['pottery_id'].str.split(
         '(', expand=True)[1].str.replace(')', '')
@@ -304,7 +304,7 @@ def analyze_pottery_vs_dogu(combined_df: pd.DataFrame,
     percentage_df = session_percentage_df.groupby('Type').mean()
     std_df = session_percentage_df.groupby('Type').std()
 
-    # --- Plotting ---
+    # Plotting
     output_dir = "pottery_dogu_analysis"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -428,7 +428,7 @@ def compute_cosine_sim_pottery_vs_dogu(
     import numpy as np
     from sklearn.metrics.pairwise import cosine_similarity
 
-    # --- Step 1: Map answers to short labels ---
+    # Step 1: Map answers to short labels
     def map_to_short_labels(df, lang):
         if lang == 'japan':
             jp_to_short = {
@@ -446,7 +446,7 @@ def compute_cosine_sim_pottery_vs_dogu(
     df_japan = map_to_short_labels(df_japan.copy(), 'japan')
     df_malaysia = map_to_short_labels(df_malaysia.copy(), 'malaysia')
 
-    # --- Step 2: Assign Pottery/dogu type ---
+    # Step 2: Assign Pottery/dogu type
     def assign_artifact_type(df):
         df['assigned_num_str'] = df['pottery_id'].str.split('(', expand=True)[1].str.replace(')', '')
         df['assigned_num'] = pd.to_numeric(df['assigned_num_str'], errors='coerce')
@@ -458,7 +458,7 @@ def compute_cosine_sim_pottery_vs_dogu(
     df_japan = assign_artifact_type(df_japan)
     df_malaysia = assign_artifact_type(df_malaysia)
 
-    # --- Step 3: Get mean emotion vectors per (Country, Type) ---
+    # Step 3: Get mean emotion vectors per (Country, Type)
     emotion_order_full = ["Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"]
     emotion_order_no_interest = ["Beautiful", "Strange", "Scary", "Feel nothing"]
 
@@ -480,7 +480,7 @@ def compute_cosine_sim_pottery_vs_dogu(
     jp_no_int = get_mean_vector(df_japan, 'Type', emotion_order_no_interest)
     my_no_int = get_mean_vector(df_malaysia, 'Type', emotion_order_no_interest)
 
-    # --- Step 4: Compute cosine similarities ---
+    # Step 4: Compute cosine similarities
     def safe_cosine(a, b):
         a, b = np.array(a), np.array(b)
         if np.all(a == 0) or np.all(b == 0):
@@ -508,7 +508,7 @@ def compute_cosine_sim_pottery_vs_dogu(
             'Malaysia_Vector_NoInt': np.round(vec_my_no, 2).tolist(),
         }
 
-    # --- Step 5: Print and return results ---
+    # Step 5: Print and return results
     print("\n" + "="*70)
     print("COSINE SIMILARITY: JAPAN vs MALAYSIA")
     print("Comparing Pottery and dogu (With vs. Without 'Interesting')")
