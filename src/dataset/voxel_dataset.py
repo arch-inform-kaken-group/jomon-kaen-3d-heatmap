@@ -21,7 +21,7 @@ class ExtendedVoxelDataset(Dataset):
         tokenizer,
         augment_color_p=0.5,
         color_jitter_std=0.05,
-        jitter_voxel_p=0.2,
+        jitter_voxel_p=0.1,
         emotion_order=["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
     ):
         super().__init__()

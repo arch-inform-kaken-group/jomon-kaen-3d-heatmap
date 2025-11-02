@@ -569,7 +569,7 @@ class SavePredictionCallback(pl.Callback):
                  save_every_n_epochs=10,
                  max_samples_to_save=20,
                  emotion_order=[
-                     "面白いい・気になる形だ",
+                     "面白い・気になる形だ",
                      "美しい・芸術的だ",
                      "不快感・意味不明",
                      "不気味・不安・怖い",
@@ -611,7 +611,8 @@ class SavePredictionCallback(pl.Callback):
                 tokens = tokens.to(pl_module.device)
 
                 # Single forward pass (no experts)
-                emotion_preds, heatmap_preds, token_preds, _, _ = pl_module.model(inputs, target_tokens=None)
+                # emotion_preds, heatmap_preds, token_preds, _, _ = pl_module.model(inputs, target_tokens=None)
+                emotion_preds, heatmap_preds, token_preds = pl_module(inputs, tokens=None)
 
                 batch_size = inputs.size(0)
                 for i in range(batch_size):
@@ -626,7 +627,7 @@ class SavePredictionCallback(pl.Callback):
                         'processed_pottery_path']
 
                     # Save by pottery ID
-                    sample_name = f"{pottery_id}"
+                    sample_name = f"{sample_count}_{pottery_id}"
 
                     self.save_input_pottery(inputs[i],
                                             epoch_dir,
