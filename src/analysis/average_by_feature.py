@@ -272,10 +272,11 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
     # Load features CSV
     features_df = pd.read_csv(features_csv)
 
-    # Extract pottery code from the CODE column (e.g., "AS0001(1).ply" -> "AS0001(1)")
-    features_df['pottery_id'] = features_df['CODE'].str.replace('.ply',
-                                                                '',
-                                                                regex=False)
+    # Extract pottery Pottery ID from the Pottery ID column (e.g., "AS0001(1).ply" -> "AS0001(1)")
+    features_df['pottery_id'] = features_df['Pottery ID']
+                                                    # .str.replace('.ply',
+                                                    #             '',
+                                                    #             regex=False)
 
     # Add short_answer column
     combined_df['answer'] = combined_df['answer'].str.strip()
@@ -304,10 +305,10 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
     output_dir = "feature_emotion_analysis"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Get feature columns (exclude CODE and pottery_id)
+    # Get feature columns (exclude Pottery ID and pottery_id)
     all_feature_columns = [
         col for col in features_df.columns if
-        col not in ['CODE', 'pottery_id'] and not col.startswith('SHAPE_TYPE_')
+        col not in ['Pottery ID', 'pottery_id'] and not col.endswith('type')
     ]
 
     # Filter to selected features if specified
@@ -329,7 +330,7 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
 
     # Add SHAPE_TYPE as a special aggregated feature
     shape_type_columns = [
-        col for col in features_df.columns if col.startswith('SHAPE_TYPE_')
+        col for col in features_df.columns if col.endswith('type')
     ]
 
     # Map colors to short labels
@@ -491,7 +492,7 @@ def analyze_emotions_by_features(combined_df: pd.DataFrame,
         def get_shape_type(row):
             for col in shape_type_columns:
                 if row[col] == 1:
-                    return col.replace('SHAPE_TYPE_', '')
+                    return col.replace(' type', '').replace('-type', '')
             return 'Unknown'
 
         merged_df['shape_type'] = merged_df.apply(get_shape_type, axis=1)
@@ -647,7 +648,7 @@ def compute_cosine_similarities_with_interesting(
 
     # Load features
     features_df = pd.read_csv(features_csv)
-    features_df['pottery_id'] = features_df['CODE'].str.replace('.ply',
+    features_df['pottery_id'] = features_df['Pottery ID'].str.replace('.ply',
                                                                 '',
                                                                 regex=False)
 
@@ -870,15 +871,15 @@ def compute_cosine_similarities_with_interesting(
 # Main Execution
 if __name__ == "__main__":
     # USER CONTROLS
-    # SELECTED_LANGUAGE = 'malaysia'
-    SELECTED_LANGUAGE = 'japan'
+    SELECTED_LANGUAGE = 'malaysia'
+    # SELECTED_LANGUAGE = 'japan'
     POTTERY_SELECTION = []  # Empty list for all pottery
     INCLUDE_POTTERY = True
 
-    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
-    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
+    DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/malaysia"
+    # DATASET_ROOT_DIR = "./src/jomon_kaen_dataset/japan"
     POTTERY_MODELS_DIR = "./src/pottery"
-    FEATURES_CSV = "./src/analysis/DS_Labels_Cleaned.csv"
+    FEATURES_CSV = "./DS_Labels_Cleaned.csv"
 
     # SELECT FEATURES TO ANALYZE
     # Option 1: Analyze ALL features (set to None or empty list)
