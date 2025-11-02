@@ -403,7 +403,8 @@ def _create_base_x_geometry(size):
     marker_top.rotate(o3d.geometry.get_rotation_matrix_from_xyz((0, 0, np.pi)), center=(0, 0, 0))
     marker_top.translate((0, thickness, 0))
     marker = marker_bottom + marker_top
-    rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, np.pi / 2, 0))
+    # rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, np.pi / 2, 0))
+    rotation_y_90 = o3d.geometry.get_rotation_matrix_from_xyz((0, 0, 0))
     marker.rotate(rotation_y_90, center=(0, 0, 0))
     marker.compute_vertex_normals()
     return marker
