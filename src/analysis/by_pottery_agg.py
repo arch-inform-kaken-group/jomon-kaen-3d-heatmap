@@ -123,11 +123,6 @@ def load_combined_qna_data(root_dir: str,
 
     return pd.concat(df_list, ignore_index=True)
 
-
-# ===============================================
-# NEW STATISTICS FUNCTIONS (As per user request)
-# ===============================================
-
 def _get_emotion_event_average_by_country(df: pd.DataFrame,
                                           language: str) -> pd.DataFrame:
     """
