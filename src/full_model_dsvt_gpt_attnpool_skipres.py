@@ -13,18 +13,18 @@ import numpy as np
 
 # Config
 EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
-RAW_DATA_DIR = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
-MESH_DIR = r"D:\storage\jomon_kaen\pottery"
+RAW_DATA_DIR = "./src/jomon_kaen_dataset/japan"
+MESH_DIR = "./src/pottery"
 TEST_GROUPS = ['G9']
-BATCH_SIZE = 8
-VOXEL_RESOLUTION = 80
+BATCH_SIZE = 4
+VOXEL_RESOLUTION = 512
 MAX_EPOCHS = 1000
-NUM_WORKERS = 4
+NUM_WORKERS = 2
 LEARNING_RATE = 1e-4
 L1_WEIGHT = 0.001
 NONZERO_EMO_TARGET = 0.005
 NONZERO_GAZE_TARGET = 0.01
-SAVE_DIR = r"D:\storage\jomon_kaen\dsvt_full"
+SAVE_DIR = "./dsvt_full"
 EARLY_STOPPING_PATIENCE = 1000
 NUM_EMOTIONS = len(EMOTION_ORDER)
 MAX_COMMENT_LEN = 150
@@ -303,26 +303,26 @@ class DSVTFullModel(pl.LightningModule):
             embed_dim=64,
             resolution=VOXEL_RESOLUTION,
             tau=36,
-            num_layers=6
+            num_layers=12
         )
         self.decoder = DSVTDecoder(
             embed_dim=64,
             out_channels=6,
             resolution=VOXEL_RESOLUTION,
             tau=36,
-            num_layers=6
+            num_layers=12
         )
         self.captioner = GPTCaptioner(
             embed_dim=64,
             vocab_size=vocab_size,
             max_len=max_comment_len,
-            num_layers=6,
+            num_layers=24,
             nhead=4,
             dropout=0.4,
             layer_drop=0.3
         )
 
-        # === Attention Pooling for Captioner ===
+        # Attention Pooling for Captioner
         self.global_attn_pool = nn.MultiheadAttention(embed_dim=64, num_heads=4, batch_first=True)
         self.pool_query = nn.Parameter(torch.randn(1, 1, 64))  # learnable global summary token
 
