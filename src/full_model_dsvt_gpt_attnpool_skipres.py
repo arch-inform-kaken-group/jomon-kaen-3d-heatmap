@@ -530,7 +530,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=3,
+        devices=4,
         strategy=FSDPStrategy(
                 sharding_strategy="FULL_SHARD",  # shards params, grads, optimizer states
                 cpu_offload=False,
