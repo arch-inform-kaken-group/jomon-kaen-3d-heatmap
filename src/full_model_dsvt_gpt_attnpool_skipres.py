@@ -11,15 +11,17 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import numpy as np
 
+from pytorch_lightning.strategies import FSDPStrategy
+
 # Config
 EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
 RAW_DATA_DIR = "./src/jomon_kaen_dataset/japan"
 MESH_DIR = "./src/pottery"
 TEST_GROUPS = ['G9']
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 VOXEL_RESOLUTION = 512
 MAX_EPOCHS = 1000
-NUM_WORKERS = 2
+NUM_WORKERS = 1
 LEARNING_RATE = 1e-4
 L1_WEIGHT = 0.001
 NONZERO_EMO_TARGET = 0.005
@@ -527,7 +529,15 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices="auto",
+        devices=3,
+        strategy=FSDPStrategy(
+                sharding_strategy="FULL_SHARD",  # shards params, grads, optimizer states
+                cpu_offload=False,
+                auto_wrap_policy=None,  # or define custom policy if needed
+                activation_checkpointing=False,  # enable if OOM
+                limit_all_gathers=True,
+            ),
+            accumulate_grad_batches=4,
         callbacks=[
             pl.callbacks.ModelCheckpoint(monitor='val_loss', save_top_k=2, every_n_epochs=20, save_last=True, mode='min'),
             pl.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOPPING_PATIENCE, mode='min'),
