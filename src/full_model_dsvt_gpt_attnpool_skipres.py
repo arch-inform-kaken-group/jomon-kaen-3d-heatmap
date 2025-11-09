@@ -546,7 +546,7 @@ if __name__ == "__main__":
         ],
         log_every_n_steps=10,
         precision='16-mixed' if torch.cuda.is_available() else 32,
-        gradient_clip_val=1.0
+        # gradient_clip_val=1.0
     )
 
     trainer.fit(model, datamodule=datamodule)
