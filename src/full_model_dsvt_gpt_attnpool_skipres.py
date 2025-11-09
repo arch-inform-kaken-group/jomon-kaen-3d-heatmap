@@ -6,6 +6,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import torch
 import torch.nn as nn
+from torch.nn import TransformerEncoderLayer
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
@@ -188,7 +189,7 @@ class GPTCaptioner(nn.Module):
 
         layers = []
         for _ in range(num_layers):
-            layer = nn.TransformerEncoderLayer(
+            layer = TransformerEncoderLayer(
                 d_model=embed_dim, nhead=nhead, dim_feedforward=64,
                 dropout=dropout, batch_first=True, activation='gelu'
             )
@@ -534,7 +535,7 @@ if __name__ == "__main__":
                 sharding_strategy="FULL_SHARD",  # shards params, grads, optimizer states
                 cpu_offload=False,
                 auto_wrap_policy=None,  # or define custom policy if needed
-                activation_checkpointing=False,  # enable if OOM
+                activation_checkpointing=[DSVTLayer, TransformerEncoderLayer],  # enable if OOM
                 limit_all_gathers=True,
             ),
             accumulate_grad_batches=4,
