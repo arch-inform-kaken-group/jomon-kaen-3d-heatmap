@@ -303,31 +303,31 @@ class DSVTFullModel(pl.LightningModule):
 
         self.backbone = DSVTBackbone(
             in_channels=3,
-            embed_dim=64,
+            embed_dim=32,
             resolution=VOXEL_RESOLUTION,
             tau=36,
             num_layers=12
         )
         self.decoder = DSVTDecoder(
-            embed_dim=64,
+            embed_dim=32,
             out_channels=6,
             resolution=VOXEL_RESOLUTION,
             tau=36,
             num_layers=12
         )
         self.captioner = GPTCaptioner(
-            embed_dim=64,
+            embed_dim=32,
             vocab_size=vocab_size,
             max_len=max_comment_len,
-            num_layers=24,
+            num_layers=16,
             nhead=4,
             dropout=0.4,
             layer_drop=0.3
         )
 
         # Attention Pooling for Captioner
-        self.global_attn_pool = nn.MultiheadAttention(embed_dim=64, num_heads=4, batch_first=True)
-        self.pool_query = nn.Parameter(torch.randn(1, 1, 64))  # learnable global summary token
+        self.global_attn_pool = nn.MultiheadAttention(embed_dim=32, num_heads=4, batch_first=True)
+        self.pool_query = nn.Parameter(torch.randn(1, 1, 32))  # learnable global summary token
 
         # Losses
         self.focal_loss = FocalLoss(alpha=0.2, gamma=2.0)
@@ -356,7 +356,7 @@ class DSVTFullModel(pl.LightningModule):
         for b in range(B):
             mask_b = (batch_idx == b)
             if not mask_b.any():
-                feat_b = torch.zeros(64, device=x.device)
+                feat_b = torch.zeros(32, device=x.device)
             else:
                 tokens_b = tokens_enc[mask_b].unsqueeze(0)  # [1, N_b, 64]
                 query = self.pool_query.expand(1, -1, -1)    # [1, 1, 64]
@@ -530,7 +530,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=4,
+        devices=2,
         strategy=FSDPStrategy(
                 sharding_strategy="FULL_SHARD",  # shards params, grads, optimizer states
                 cpu_offload=False,
