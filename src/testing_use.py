@@ -8,7 +8,8 @@ def main():
     data, errors = filter_data_on_condition(
         # root=r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia",
         # pottery_path=r"D:\storage\jomon_kaen\pottery",
-        root="./src/jomon_kaen_dataset/malaysia",
+        # root="./src/jomon_kaen_dataset/malaysia",
+        root="./src/jomon_kaen_dataset/TEST",
         pottery_path="./src/pottery",
         hololens_2_spatial_error=1.5,
         # hololens_2_spatial_error=0.1,
@@ -22,7 +23,7 @@ def main():
         # generate_pc_hm_voxel=False,
         # generate_qna=False,
         # generate_voice=False,
-        generate_pottery_dogu_voxel=False,
+        # generate_pottery_dogu_voxel=False,
         generate_sanity_check=True,
         qna_marker=True,
         # generate_fixation=True,
@@ -39,9 +40,9 @@ def main():
         # ],
         # pottery_ids=["IN0017"],
         # pottery_ids=["UD0028"],
-        pottery_ids=["UD0003"],
+        # pottery_ids=["UD0003"],
         # min_qa_size=100,
-        min_emotion_count=2,
+        # min_emotion_count=2,
     )
 
     et = time.time_ns()
