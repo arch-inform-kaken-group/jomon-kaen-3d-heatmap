@@ -29,6 +29,7 @@ class SimpleTokenizer:
 
     def __init__(self, max_len=50):
         self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3}
+        # self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3, '<mask>': 4}
         self.idx_to_word = {v: k for k, v in self.word_to_idx.items()}
         self.vocab_size = len(self.word_to_idx)
         self.max_len = max_len
