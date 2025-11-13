@@ -6,25 +6,28 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import torch
 import torch.nn as nn
+from torch.nn import TransformerEncoderLayer
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import numpy as np
 
+from pytorch_lightning.strategies import FSDPStrategy
+
 # Config
 EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
-RAW_DATA_DIR = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
-MESH_DIR = r"D:\storage\jomon_kaen\pottery"
+RAW_DATA_DIR = "./src/jomon_kaen_dataset/japan"
+MESH_DIR = "./src/pottery"
 TEST_GROUPS = ['G9']
-BATCH_SIZE = 8
-VOXEL_RESOLUTION = 80
+BATCH_SIZE = 1
+VOXEL_RESOLUTION = 256
 MAX_EPOCHS = 1000
-NUM_WORKERS = 4
+NUM_WORKERS = 2
 LEARNING_RATE = 1e-4
 L1_WEIGHT = 0.001
 NONZERO_EMO_TARGET = 0.005
 NONZERO_GAZE_TARGET = 0.01
-SAVE_DIR = r"D:\storage\jomon_kaen\dsvt_full"
+SAVE_DIR = "./dsvt_full"
 EARLY_STOPPING_PATIENCE = 1000
 NUM_EMOTIONS = len(EMOTION_ORDER)
 MAX_COMMENT_LEN = 150
@@ -186,7 +189,7 @@ class GPTCaptioner(nn.Module):
 
         layers = []
         for _ in range(num_layers):
-            layer = nn.TransformerEncoderLayer(
+            layer = TransformerEncoderLayer(
                 d_model=embed_dim, nhead=nhead, dim_feedforward=64,
                 dropout=dropout, batch_first=True, activation='gelu'
             )
@@ -300,31 +303,31 @@ class DSVTFullModel(pl.LightningModule):
 
         self.backbone = DSVTBackbone(
             in_channels=3,
-            embed_dim=64,
+            embed_dim=32,
             resolution=VOXEL_RESOLUTION,
             tau=36,
-            num_layers=6
+            num_layers=12
         )
         self.decoder = DSVTDecoder(
-            embed_dim=64,
+            embed_dim=32,
             out_channels=6,
             resolution=VOXEL_RESOLUTION,
             tau=36,
-            num_layers=6
+            num_layers=12
         )
         self.captioner = GPTCaptioner(
-            embed_dim=64,
+            embed_dim=32,
             vocab_size=vocab_size,
             max_len=max_comment_len,
-            num_layers=6,
+            num_layers=16,
             nhead=4,
             dropout=0.4,
             layer_drop=0.3
         )
 
-        # === Attention Pooling for Captioner ===
-        self.global_attn_pool = nn.MultiheadAttention(embed_dim=64, num_heads=4, batch_first=True)
-        self.pool_query = nn.Parameter(torch.randn(1, 1, 64))  # learnable global summary token
+        # Attention Pooling for Captioner
+        self.global_attn_pool = nn.MultiheadAttention(embed_dim=32, num_heads=4, batch_first=True)
+        self.pool_query = nn.Parameter(torch.randn(1, 1, 32))  # learnable global summary token
 
         # Losses
         self.focal_loss = FocalLoss(alpha=0.2, gamma=2.0)
@@ -353,7 +356,7 @@ class DSVTFullModel(pl.LightningModule):
         for b in range(B):
             mask_b = (batch_idx == b)
             if not mask_b.any():
-                feat_b = torch.zeros(64, device=x.device)
+                feat_b = torch.zeros(32, device=x.device)
             else:
                 tokens_b = tokens_enc[mask_b].unsqueeze(0)  # [1, N_b, 64]
                 query = self.pool_query.expand(1, -1, -1)    # [1, 1, 64]
@@ -527,7 +530,15 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices="auto",
+        devices=2,
+        strategy=FSDPStrategy(
+                sharding_strategy="FULL_SHARD",  # shards params, grads, optimizer states
+                cpu_offload=False,
+                auto_wrap_policy=None,  # or define custom policy if needed
+                activation_checkpointing=[DSVTLayer, TransformerEncoderLayer],  # enable if OOM
+                limit_all_gathers=True,
+            ),
+            accumulate_grad_batches=4,
         callbacks=[
             pl.callbacks.ModelCheckpoint(monitor='val_loss', save_top_k=2, every_n_epochs=20, save_last=True, mode='min'),
             pl.callbacks.EarlyStopping(monitor='val_loss', patience=EARLY_STOPPING_PATIENCE, mode='min'),
@@ -535,7 +546,7 @@ if __name__ == "__main__":
         ],
         log_every_n_steps=10,
         precision='16-mixed' if torch.cuda.is_available() else 32,
-        gradient_clip_val=1.0
+        # gradient_clip_val=1.0
     )
 
     trainer.fit(model, datamodule=datamodule)
