@@ -12,8 +12,8 @@ import numpy as np
 
 # Config
 EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "不思議・意味不明", "不気味・不安・怖い", "何も感じない"]
-RAW_DATA_DIR = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
-MESH_DIR = r"D:\storage\jomon_kaen\pottery"
+RAW_DATA_DIR = "./src/jomon_kaen_dataset/japan"
+MESH_DIR = "./src/pottery"
 TEST_GROUPS = ['G9']
 BATCH_SIZE = 8
 VOXEL_RESOLUTION = 80
@@ -23,7 +23,7 @@ LEARNING_RATE = 1e-4
 L1_WEIGHT = 0.001
 NONZERO_EMO_TARGET = 0.005
 NONZERO_GAZE_TARGET = 0.01
-SAVE_DIR = r"D:\storage\jomon_kaen\dsvt_full"
+SAVE_DIR = "dsvt_full"
 EARLY_STOPPING_PATIENCE = 1000
 NUM_EMOTIONS = len(EMOTION_ORDER)
 MAX_COMMENT_LEN = 150
