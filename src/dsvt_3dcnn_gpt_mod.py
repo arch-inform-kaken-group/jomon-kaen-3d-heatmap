@@ -800,7 +800,8 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices="auto",
+        # devices="auto",
+        devices=1,
         callbacks=[
             pl.callbacks.ModelCheckpoint(monitor='val_loss',
                                          save_top_k=2,
