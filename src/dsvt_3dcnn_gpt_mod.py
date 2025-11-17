@@ -49,101 +49,101 @@ class StochasticDepth(nn.Module):
         return x.div(keep_prob) * random_tensor
 
 
-# DSVT Layer with internal 3D CNN after grouping
-class DSVTLayerWCNN(nn.Module):
+# # DSVT Layer with internal 3D CNN after grouping
+# class DSVTLayerWCNN(nn.Module):
 
-    def __init__(self, embed_dim, axis='x', tau=36):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.axis = axis
-        self.tau = tau
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim,
-                                          num_heads=4,
-                                          batch_first=True)
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(nn.Linear(embed_dim,
-                                           embed_dim * 2),
-                                 nn.GELU(),
-                                 nn.Linear(embed_dim * 2,
-                                           embed_dim))
+#     def __init__(self, embed_dim, axis='x', tau=36):
+#         super().__init__()
+#         self.embed_dim = embed_dim
+#         self.axis = axis
+#         self.tau = tau
+#         self.norm1 = nn.LayerNorm(embed_dim)
+#         self.attn = nn.MultiheadAttention(embed_dim,
+#                                           num_heads=4,
+#                                           batch_first=True)
+#         self.norm2 = nn.LayerNorm(embed_dim)
+#         self.mlp = nn.Sequential(nn.Linear(embed_dim,
+#                                            embed_dim * 2),
+#                                  nn.GELU(),
+#                                  nn.Linear(embed_dim * 2,
+#                                            embed_dim))
 
-        if tau == 216:
-            self.local_shape = (6, 6, 6)
-        elif tau == 125:
-            self.local_shape = (5, 5, 5)
-        elif tau == 36:
-            self.local_shape = (3, 3, 4)
-        elif tau == 16:
-            self.local_shape = (2, 2, 4)
-        else:
-            self.local_shape = (1, 1, tau)
-        d_l, h_l, w_l = self.local_shape
-        assert d_l * h_l * w_l == tau, f"Local shape {self.local_shape} must multiply to tau={tau}"
+#         if tau == 216:
+#             self.local_shape = (6, 6, 6)
+#         elif tau == 125:
+#             self.local_shape = (5, 5, 5)
+#         elif tau == 36:
+#             self.local_shape = (3, 3, 4)
+#         elif tau == 16:
+#             self.local_shape = (2, 2, 4)
+#         else:
+#             self.local_shape = (1, 1, tau)
+#         d_l, h_l, w_l = self.local_shape
+#         assert d_l * h_l * w_l == tau, f"Local shape {self.local_shape} must multiply to tau={tau}"
 
-        self.local_cnn = nn.Sequential(
-            nn.Conv3d(embed_dim,
-                      embed_dim,
-                      kernel_size=3,
-                      padding=1,
-                      groups=embed_dim,
-                      bias=False),
-            nn.BatchNorm3d(embed_dim),
-            nn.Conv3d(embed_dim,
-                      embed_dim,
-                      kernel_size=1,
-                      bias=False),
-            nn.GELU())
+#         self.local_cnn = nn.Sequential(
+#             nn.Conv3d(embed_dim,
+#                       embed_dim,
+#                       kernel_size=3,
+#                       padding=1,
+#                       groups=embed_dim,
+#                       bias=False),
+#             nn.BatchNorm3d(embed_dim),
+#             nn.Conv3d(embed_dim,
+#                       embed_dim,
+#                       kernel_size=1,
+#                       bias=False),
+#             nn.GELU())
 
-    def forward(self, tokens, coords, batch_idx, D, H, W):
-        N = tokens.shape[0]
-        if N == 0:
-            return tokens
-        device = tokens.device
+#     def forward(self, tokens, coords, batch_idx, D, H, W):
+#         N = tokens.shape[0]
+#         if N == 0:
+#             return tokens
+#         device = tokens.device
 
-        if self.axis == 'x':
-            sort_key = coords[:, 0]
-        elif self.axis == 'y':
-            sort_key = coords[:, 1]
-        else:
-            sort_key = coords[:, 2]
+#         if self.axis == 'x':
+#             sort_key = coords[:, 0]
+#         elif self.axis == 'y':
+#             sort_key = coords[:, 1]
+#         else:
+#             sort_key = coords[:, 2]
 
-        composite = batch_idx * (D * H * W) + sort_key.long()
-        _, indices = torch.sort(composite)
-        tokens_sorted = tokens[indices]
-        coords_sorted = coords[indices]
-        batch_sorted = batch_idx[indices]
+#         composite = batch_idx * (D * H * W) + sort_key.long()
+#         _, indices = torch.sort(composite)
+#         tokens_sorted = tokens[indices]
+#         coords_sorted = coords[indices]
+#         batch_sorted = batch_idx[indices]
 
-        S = (N + self.tau - 1) // self.tau
-        padded_N = S * self.tau
-        pad_len = padded_N - N
-        if pad_len > 0:
-            tokens_pad = torch.zeros(pad_len, self.embed_dim, device=device)
-            tokens_sorted = torch.cat([tokens_sorted, tokens_pad], dim=0)
+#         S = (N + self.tau - 1) // self.tau
+#         padded_N = S * self.tau
+#         pad_len = padded_N - N
+#         if pad_len > 0:
+#             tokens_pad = torch.zeros(pad_len, self.embed_dim, device=device)
+#             tokens_sorted = torch.cat([tokens_sorted, tokens_pad], dim=0)
 
-        tokens_sets = tokens_sorted.view(S, self.tau, self.embed_dim)
-        d_l, h_l, w_l = self.local_shape
-        tokens_3d = tokens_sets.transpose(1,
-                                          2).reshape(S,
-                                                     self.embed_dim,
-                                                     d_l,
-                                                     h_l,
-                                                     w_l)
-        tokens_cnn = self.local_cnn(tokens_3d)
-        tokens_cnn = tokens_cnn.reshape(S,
-                                        self.embed_dim,
-                                        self.tau).transpose(1,
-                                                            2)
-        tokens_sets = tokens_sets + tokens_cnn
+#         tokens_sets = tokens_sorted.view(S, self.tau, self.embed_dim)
+#         d_l, h_l, w_l = self.local_shape
+#         tokens_3d = tokens_sets.transpose(1,
+#                                           2).reshape(S,
+#                                                      self.embed_dim,
+#                                                      d_l,
+#                                                      h_l,
+#                                                      w_l)
+#         tokens_cnn = self.local_cnn(tokens_3d)
+#         tokens_cnn = tokens_cnn.reshape(S,
+#                                         self.embed_dim,
+#                                         self.tau).transpose(1,
+#                                                             2)
+#         tokens_sets = tokens_sets + tokens_cnn
 
-        tokens_norm = self.norm1(tokens_sets)
-        attn_out, _ = self.attn(tokens_norm, tokens_norm, tokens_norm)
-        tokens_sets = tokens_sets + attn_out
-        tokens_sets = tokens_sets + self.mlp(self.norm2(tokens_sets))
+#         tokens_norm = self.norm1(tokens_sets)
+#         attn_out, _ = self.attn(tokens_norm, tokens_norm, tokens_norm)
+#         tokens_sets = tokens_sets + attn_out
+#         tokens_sets = tokens_sets + self.mlp(self.norm2(tokens_sets))
 
-        tokens_flat = tokens_sets.view(-1, self.embed_dim)[:N]
-        unsort_indices = torch.argsort(indices)
-        return tokens_flat[unsort_indices]
+#         tokens_flat = tokens_sets.view(-1, self.embed_dim)[:N]
+#         unsort_indices = torch.argsort(indices)
+#         return tokens_flat[unsort_indices]
 
 
 class DSVTLayer(nn.Module):
@@ -220,11 +220,13 @@ class DSVTBackbone(nn.Module):
                         resolution,
                         resolution,
                         embed_dim))
-        self.encoder_layers = nn.ModuleList([
-            DSVTLayerWCNN(embed_dim,
-                          axis=ax,
-                          tau=tau) for ax in ['x', 'y', 'z']
-        ] + [
+        self.encoder_layers = nn.ModuleList(
+            # [
+        #     DSVTLayerWCNN(embed_dim,
+        #                   axis=ax,
+        #                   tau=tau) for ax in ['x', 'y', 'z']
+        # ] + 
+        [
             DSVTLayer(embed_dim,
                       axis=ax,
                       tau=tau)
@@ -483,12 +485,12 @@ class DSVTFullModel(pl.LightningModule):
         self.backbone = DSVTBackbone(in_channels=3,
                                      embed_dim=32,
                                      resolution=VOXEL_RESOLUTION,
-                                     tau=216,
-                                     num_layers=6)
+                                     tau=64,
+                                     num_layers=9)
         self.decoder = DSVTDecoder(embed_dim=32,
                                    out_channels=6,
                                    resolution=VOXEL_RESOLUTION,
-                                   tau=216,
+                                   tau=64,
                                    num_layers=9)
         self.captioner = GPTCaptioner(embed_dim=32,
                                       vocab_size=vocab_size,
@@ -802,7 +804,7 @@ if __name__ == "__main__":
         callbacks=[
             pl.callbacks.ModelCheckpoint(monitor='val_loss',
                                          save_top_k=2,
-                                         every_n_epochs=20,
+                                         every_n_epochs=1,
                                          save_last=True,
                                          mode='min'),
             pl.callbacks.EarlyStopping(monitor='val_loss',
