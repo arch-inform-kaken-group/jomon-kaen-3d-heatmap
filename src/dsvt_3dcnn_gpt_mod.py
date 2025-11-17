@@ -805,7 +805,7 @@ if __name__ == "__main__":
         callbacks=[
             pl.callbacks.ModelCheckpoint(monitor='val_loss',
                                          save_top_k=2,
-                                         every_n_epochs=1,
+                                         every_n_epochs=20,
                                          save_last=True,
                                          mode='min'),
             pl.callbacks.EarlyStopping(monitor='val_loss',
@@ -813,7 +813,7 @@ if __name__ == "__main__":
                                        mode='min'),
             SavePredictionCallback(save_dir=SAVE_DIR,
                                    emotion_order=EMOTION_ORDER,
-                                   save_every_n_epochs=20,
+                                   save_every_n_epochs=1,
                                    max_samples_to_save=100)
         ],
         log_every_n_steps=10,
