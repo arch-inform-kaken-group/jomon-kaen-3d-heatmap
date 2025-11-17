@@ -813,7 +813,7 @@ if __name__ == "__main__":
                                        mode='min'),
             SavePredictionCallback(save_dir=SAVE_DIR,
                                    emotion_order=EMOTION_ORDER,
-                                   save_every_n_epochs=20,
+                                   save_every_n_epochs=25,
                                    max_samples_to_save=100)
         ],
         accumulate_grad_batches=4,
