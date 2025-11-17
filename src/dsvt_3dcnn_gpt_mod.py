@@ -15,10 +15,10 @@ EMOTION_ORDER = ["面白い・気になる形だ", "美しい・芸術的だ", "
 RAW_DATA_DIR = "./src/jomon_kaen_dataset/japan"
 MESH_DIR = "./src/pottery"
 TEST_GROUPS = ['G9']
-BATCH_SIZE = 8
-VOXEL_RESOLUTION = 80
+BATCH_SIZE = 1
+VOXEL_RESOLUTION = 256
 MAX_EPOCHS = 1000
-NUM_WORKERS = 4
+NUM_WORKERS = 2
 LEARNING_RATE = 1e-4
 L1_WEIGHT = 0.001
 NONZERO_EMO_TARGET = 0.005
@@ -813,9 +813,10 @@ if __name__ == "__main__":
                                        mode='min'),
             SavePredictionCallback(save_dir=SAVE_DIR,
                                    emotion_order=EMOTION_ORDER,
-                                   save_every_n_epochs=1,
+                                   save_every_n_epochs=20,
                                    max_samples_to_save=100)
         ],
+        accumulate_grad_batches=4,
         log_every_n_steps=10,
         precision='16-mixed' if torch.cuda.is_available() else 32,
         gradient_clip_val=1.0)
