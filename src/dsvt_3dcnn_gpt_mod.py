@@ -495,7 +495,7 @@ class DSVTFullModel(pl.LightningModule):
         self.captioner = GPTCaptioner(embed_dim=32,
                                       vocab_size=vocab_size,
                                       max_len=max_comment_len,
-                                      num_layers=12,
+                                      num_layers=16,
                                       nhead=4,
                                       dropout=0.4,
                                       layer_drop=0.4)
@@ -813,7 +813,7 @@ if __name__ == "__main__":
                                        mode='min'),
             SavePredictionCallback(save_dir=SAVE_DIR,
                                    emotion_order=EMOTION_ORDER,
-                                   save_every_n_epochs=1,
+                                   save_every_n_epochs=20,
                                    max_samples_to_save=100)
         ],
         accumulate_grad_batches=4,
