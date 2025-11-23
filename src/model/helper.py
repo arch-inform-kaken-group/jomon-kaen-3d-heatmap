@@ -28,8 +28,8 @@ class SimpleTokenizer:
     """Picklable Japanese tokenizer using SudachiPy - keeps ALL tokens"""
 
     def __init__(self, max_len=50):
-        self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3}
-        # self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3, '<mask>': 4}
+        # self.word_to_idx = {'<pad>': 0, '<sos>': 1, '<eos>': 2, '<unk>': 3}
+        self.word_to_idx = {'<pad>': 0, '<bos>': 1, '<eos>': 2, '<mask>': 3, '<unk>': 4}
         self.idx_to_word = {v: k for k, v in self.word_to_idx.items()}
         self.vocab_size = len(self.word_to_idx)
         self.max_len = max_len
@@ -68,7 +68,7 @@ class SimpleTokenizer:
             self.word_to_idx.get(word, self.word_to_idx['<unk>'])
             for word in words
         ]
-        tokens = [self.word_to_idx['<sos>']] + tokens + [self.word_to_idx['<eos>']]
+        tokens = [self.word_to_idx['<bos>']] + tokens + [self.word_to_idx['<eos>']]
 
         if len(tokens) > self.max_len:
             tokens = tokens[:self.max_len]
@@ -76,6 +76,42 @@ class SimpleTokenizer:
             tokens += [self.word_to_idx['<pad>']] * (self.max_len - len(tokens))
 
         return torch.tensor(tokens, dtype=torch.long)
+
+    def decode(self, ids, skip_special_tokens=True):
+        """
+        Decode a list/array of token IDs to a string.
+        
+        Args:
+            ids: list or np.ndarray or torch.Tensor of integers
+            skip_special_tokens: if True, skip <pad>, <sos>, <eos>, <unk>, <mask>
+        
+        Returns:
+            str: decoded sentence
+        """
+        if isinstance(ids, torch.Tensor):
+            ids = ids.cpu().numpy()
+        if isinstance(ids, np.ndarray):
+            ids = ids.tolist()
+
+        special_ids = {
+            self.word_to_idx['<pad>'],
+            self.word_to_idx['<bos>'],
+            self.word_to_idx['<eos>'],
+            self.word_to_idx['<mask>'],
+            self.word_to_idx.get('<unk>', -1)
+        }
+
+        words = []
+        for idx in ids:
+            if idx in self.idx_to_word:
+                word = self.idx_to_word[idx]
+                if skip_special_tokens and idx in special_ids:
+                    continue
+                words.append(word)
+            else:
+                words.append('<unk>')
+
+        return ''.join(words)  # Japanese doesn't use spaces between words
 
 # class SimpleTokenizer:
 #     """A simple tokenizer to convert text comments into numerical tensors."""
@@ -594,7 +630,11 @@ class SavePredictionCallback(pl.Callback):
         os.makedirs(epoch_dir, exist_ok=True)
 
         val_loader = trainer.datamodule.val_dataloader()
-        val_data_paths = pl_module.val_data_paths
+        # val_data_paths = pl_module.val_data_paths
+        # if not val_data_paths:
+        #     print("Error: Could not retrieve validation data paths.")
+        #     return
+        val_data_paths = getattr(trainer.datamodule, 'val_data_paths', [])
         if not val_data_paths:
             print("Error: Could not retrieve validation data paths.")
             return
@@ -613,7 +653,10 @@ class SavePredictionCallback(pl.Callback):
 
                 # Single forward pass (no experts)
                 # emotion_preds, heatmap_preds, token_preds, _, _ = pl_module.model(inputs, target_tokens=None)
-                emotion_preds, heatmap_preds, token_preds = pl_module(inputs, tokens=None)
+                # emotion_preds, heatmap_preds, token_preds = pl_module(inputs, tokens=None)
+                emotion_preds, heatmap_preds, token_preds = pl_module.predict_step(
+                        (inputs, (emotion_labels, heatmaps, tokens)), batch_idx=0
+                    )
 
                 batch_size = inputs.size(0)
                 for i in range(batch_size):
