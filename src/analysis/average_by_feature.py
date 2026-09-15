@@ -968,12 +968,12 @@ if __name__ == "__main__":
                 include_protrusions=INCLUDE_PROTRUSIONS,
                 include_shape_types=INCLUDE_SHAPE_TYPES)
             
-            # print("\nComputing cross-cultural similarities (INCLUDING 'Interesting')...")
-            # sim_results = compute_cosine_similarities_with_interesting(
-            #     df_japan.copy(),
-            #     df_malaysia.copy(),
-            #     FEATURES_CSV
-            # )
+            print("\nComputing cross-cultural similarities (INCLUDING 'Interesting')...")
+            sim_results = compute_cosine_similarities_with_interesting(
+                df_japan.copy(),
+                df_malaysia.copy(),
+                FEATURES_CSV
+            )
         else:
             print("One or both datasets are empty. Cannot perform comparison.")
 

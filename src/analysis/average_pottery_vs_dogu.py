@@ -604,27 +604,27 @@ if __name__ == "__main__":
             "Please ensure all directories are set up correctly."
         )
 
-    # try:
-    #     # Load both datasets
-    #     print("Loading Japan dataset...")
-    #     df_japan = load_combined_qna_data("./src/jomon_kaen_dataset/japan", POTTERY_MODELS_DIR)
-    #     print("Loading Malaysia dataset...")
-    #     df_malaysia = load_combined_qna_data("./src/jomon_kaen_dataset/malaysia", POTTERY_MODELS_DIR)
+    try:
+        # Load both datasets
+        print("Loading Japan dataset...")
+        df_japan = load_combined_qna_data("./src/jomon_kaen_dataset/japan", POTTERY_MODELS_DIR)
+        print("Loading Malaysia dataset...")
+        df_malaysia = load_combined_qna_data("./src/jomon_kaen_dataset/malaysia", POTTERY_MODELS_DIR)
 
-    #     if df_japan.empty or df_malaysia.empty:
-    #         print("Error: One or both datasets are empty.")
-    #     else:
-    #         # Run Pottery vs dogu analysis for each country (optional)
-    #         # analyze_pottery_vs_dogu(df_japan, language='japan')
-    #         # analyze_pottery_vs_dogu(df_malaysia, language='malaysia')
+        if df_japan.empty or df_malaysia.empty:
+            print("Error: One or both datasets are empty.")
+        else:
+            # Run Pottery vs dogu analysis for each country (optional)
+            analyze_pottery_vs_dogu(df_japan, language='japan')
+            analyze_pottery_vs_dogu(df_malaysia, language='malaysia')
 
-    #         # MAIN NEW ANALYSIS: Cross-cultural similarity for Pottery and dogu
-    #         print("\n" + "="*50)
-    #         print("COMPUTING CROSS-CULTURAL COSINE SIMILARITY")
-    #         print("="*50)
-    #         sim_results = compute_cosine_sim_pottery_vs_dogu(df_japan, df_malaysia)
+            # MAIN NEW ANALYSIS: Cross-cultural similarity for Pottery and dogu
+            print("\n" + "="*50)
+            print("COMPUTING CROSS-CULTURAL COSINE SIMILARITY")
+            print("="*50)
+            sim_results = compute_cosine_sim_pottery_vs_dogu(df_japan, df_malaysia)
 
-    # except Exception as e:
-    #     print(f"Error during analysis: {e}")
-    #     import traceback
-    #     traceback.print_exc()
+    except Exception as e:
+        print(f"Error during analysis: {e}")
+        import traceback
+        traceback.print_exc()

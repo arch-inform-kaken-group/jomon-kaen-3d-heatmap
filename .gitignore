@@ -3,6 +3,7 @@ checkpoints
 lightning_logs
 outputs
 feature_emotion_analysis
+stats_output
 __pycache__
 
 .env
