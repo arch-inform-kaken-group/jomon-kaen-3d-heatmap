@@ -1,6 +1,7 @@
 archive
 checkpoints
 lightning_logs
+anova_statistical_analysis
 outputs
 feature_emotion_analysis
 stats_output
