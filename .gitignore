@@ -3,6 +3,7 @@ checkpoints
 lightning_logs
 anova_statistical_analysis
 anova_lmm_statistical_analysis
+raw_counts_and_verification
 outputs
 feature_emotion_analysis
 stats_output
