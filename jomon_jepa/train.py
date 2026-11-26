@@ -13,8 +13,12 @@ from losses import MultimodalJEPACriterion
 
 
 class JomonJEPALightningModule(pl.LightningModule):
-    def __init__(self, cfg: JEPAConfig):
+    def __init__(self, cfg: JEPAConfig = None, **kwargs):
         super().__init__()
+        if cfg is None:
+            cfg = JEPAConfig(**kwargs)
+        elif isinstance(cfg, dict):
+            cfg = JEPAConfig(**cfg)
         self.save_hyperparameters(vars(cfg))
         self.cfg = cfg
         self.model = build_multimodal_jepa(cfg)

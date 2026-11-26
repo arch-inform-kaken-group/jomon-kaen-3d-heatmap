@@ -147,6 +147,11 @@ class SLMPerceiverTextDecoder(nn.Module):
         full_labels = torch.cat([prefix_labels, labels], dim=1)
 
         outputs = self.lm(inputs_embeds=inputs_embeds, attention_mask=full_mask, labels=full_labels)
+        if prefix_embeds.shape[0] > 1:
+            prefix_std = prefix_embeds.float().std(dim=0).mean()
+            diversity_penalty = F.relu(0.25 - prefix_std)
+            return outputs.loss + 0.5 * diversity_penalty
+            
         return outputs.loss
 
     @torch.no_grad()
@@ -337,8 +342,15 @@ class NextConceptLCMDecoder(nn.Module):
         for _ in range(64):
             out, h = self.text_gru(self.char_emb(cur_tok), h)
             logits = self.text_out(out[:, -1, :]) / max(temperature, 1e-3)
+            # Restrict sampling strictly to valid UTF-8 byte tokens [2..257] and EOS [vocab_size - 1]
+            logits[:, 258 : self.vocab_size - 1] = -float("inf")
+            logits[:, 0:2] = -float("inf")
             probs = F.softmax(logits, dim=-1)
-            next_tok = torch.multinomial(probs, num_samples=1) if temperature > 0.05 else logits.argmax(dim=-1, keepdim=True)
+            next_tok = (
+                torch.multinomial(probs, num_samples=1)
+                if temperature > 0.05
+                else logits.argmax(dim=-1, keepdim=True)
+            )
             cur_tok = next_tok
             for b in range(B):
                 if done[b]:
@@ -346,7 +358,7 @@ class NextConceptLCMDecoder(nn.Module):
                 tid = int(next_tok[b, 0].item())
                 if tid == self.vocab_size - 1 or tid == 0:
                     done[b] = True
-                elif tid >= 2:
+                elif 2 <= tid < 258:
                     byte_lists[b].append(tid - 2)
 
         rendered_texts = [bytes(bl).decode("utf-8", errors="ignore") for bl in byte_lists]

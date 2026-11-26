@@ -56,7 +56,7 @@ def gaze_saliency_loss(gaze_logits: torch.Tensor, gaze_target: torch.Tensor) -> 
 
 
 def emotion_focal_dice_loss(emo_logits: torch.Tensor, emo_target: torch.Tensor, alpha=0.25, gamma=2.0) -> torch.Tensor:
-    """Focal + Soft Dice loss across the 5 sparse emotion channels."""
+    """Focal + Soft Dice + Vessel-Level Channel Presence loss across the 5 sparse emotion channels."""
     bce = F.binary_cross_entropy_with_logits(emo_logits, emo_target, reduction="none")
     pt = torch.exp(-bce)
     alpha_t = emo_target * alpha + (1.0 - emo_target) * (1.0 - alpha)
@@ -67,7 +67,12 @@ def emotion_focal_dice_loss(emo_logits: torch.Tensor, emo_target: torch.Tensor, 
     union = probs.sum(dim=1) + emo_target.sum(dim=1)
     dice = 1.0 - ((2.0 * inter + 1.0) / (union + 1.0)).mean()
 
-    return focal + dice
+    # Vessel-level presence loss: suppresses the 4 unselected emotion channels globally
+    vessel_pred_logit = emo_logits.amax(dim=1)                  # [B, 5]
+    vessel_target = (emo_target.amax(dim=1) > 0.5).float()      # [B, 5]
+    presence_loss = F.binary_cross_entropy_with_logits(vessel_pred_logit, vessel_target)
+
+    return focal + dice + 0.5 * presence_loss
 
 
 class MultimodalJEPACriterion(nn.Module):

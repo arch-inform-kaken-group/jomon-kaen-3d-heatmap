@@ -45,34 +45,91 @@ def build_concept_bank(model, dataloader, device) -> Dict:
     return {"embeddings": embs, "texts": texts}
 
 
+import glob
+import trimesh
+from scipy.spatial import cKDTree
+
+def _load_dense_reference_points(vessel_id: str, pottery_mesh_dir: str, fallback_ply: str, target_dense_pts: int = 100000) -> np.ndarray:
+    """
+    Loads the original high-res pottery mesh from pottery_mesh_dir (sampling 100k surface points)
+    for dense visualization; falls back to processed_pottery_path if raw mesh is not found.
+    """
+    base_id = vessel_id.split("(")[0].strip()
+    candidates = []
+    if pottery_mesh_dir and os.path.isdir(pottery_mesh_dir):
+        for ext in ("obj", "ply", "glb", "stl"):
+            candidates.extend(glob.glob(os.path.join(pottery_mesh_dir, f"*{base_id}*.{ext}")))
+
+    if candidates:
+        mesh = trimesh.load(candidates[0], force="mesh", process=False)
+        if isinstance(mesh, trimesh.Trimesh) and len(mesh.faces) > 0:
+            pts, _ = trimesh.sample.sample_surface(mesh, target_dense_pts)
+            return np.asarray(pts, dtype=np.float32)
+        elif hasattr(mesh, "vertices") and len(mesh.vertices) > 0:
+            return np.asarray(mesh.vertices, dtype=np.float32)
+
+    if fallback_ply and os.path.exists(fallback_ply):
+        ref_pcd = o3d.io.read_point_cloud(fallback_ply)
+        return np.asarray(ref_pcd.points, dtype=np.float32)
+    return None
+
+
 def save_point_predictions_ply(
-    coord: np.ndarray,
+    coord_norm: np.ndarray,
     gaze_pred: np.ndarray,
     emo_pred: np.ndarray,
     save_dir: str,
     prefix: str,
+    ref_pcd_path: str = None,
+    vessel_id: str = "",
+    pottery_mesh_dir: str = "",
+    dense_points: int = 100000,
 ):
     os.makedirs(save_dir, exist_ok=True)
+
+    full_pts = _load_dense_reference_points(
+        vessel_id=vessel_id,
+        pottery_mesh_dir=pottery_mesh_dir,
+        fallback_ply=ref_pcd_path,
+        target_dense_pts=dense_points,
+    )
+
+    if full_pts is not None and len(full_pts) > 0:
+        centroid = full_pts.mean(axis=0, keepdims=True)
+        full_norm = full_pts - centroid
+        scale = np.max(np.linalg.norm(full_norm, axis=1)) + 1e-6
+        full_norm = full_norm / scale
+
+        tree = cKDTree(coord_norm)
+        _, nn_idx = tree.query(full_norm, k=4)  # 4-NN smooth surface interpolation
+
+        export_pts = full_pts
+        if gaze_pred is not None:
+            gaze_pred = gaze_pred[nn_idx].mean(axis=1)
+        if emo_pred is not None:
+            emo_pred = emo_pred[nn_idx].mean(axis=1)
+    else:
+        export_pts = coord_norm
+
     if gaze_pred is not None:
         import matplotlib.pyplot as plt
         cmap = plt.get_cmap("jet")
         g_norm = gaze_pred.squeeze() / (gaze_pred.max() + 1e-6)
-        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(coord))
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(export_pts))
         pcd.colors = o3d.utility.Vector3dVector(cmap(g_norm)[:, :3])
         o3d.io.write_point_cloud(os.path.join(save_dir, f"{prefix}_gaze_PRED.ply"), pcd)
 
     if emo_pred is not None:
         for c_idx, meta in enumerate(CANONICAL_EMOTIONS):
             rgb = np.array(DEFAULT_QNA_ANSWER_COLOR_MAP[meta["jp"]]["rgb"], dtype=np.float64) / 255.0
-            mask = emo_pred[:, c_idx] > 0.5
-            colors = np.zeros_like(coord, dtype=np.float64)
-            colors[mask] = rgb
-            pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(coord))
+            raw_p = emo_pred[:, c_idx]
+            intensity = np.clip((raw_p - 0.25) / 0.75, 0.0, 1.0)[:, None]
+            colors = 0.12 * (1.0 - intensity) + rgb[None, :] * intensity
+            pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(export_pts))
             pcd.colors = o3d.utility.Vector3dVector(colors)
             o3d.io.write_point_cloud(
                 os.path.join(save_dir, f"{prefix}_emotion_{meta['color']}_PRED.ply"), pcd
             )
-
 
 def evaluate_at_temperature(
     model,
@@ -82,6 +139,8 @@ def evaluate_at_temperature(
     num_samples: int = 3,
     concept_bank: Dict = None,
     export_dir: str = None,
+    pottery_mesh_dir: str = None,
+    dense_points: int = 100000,
 ) -> Dict[str, float]:
     gaze_ccs, emo_f1s, text_sims = [], [], []
 
@@ -126,7 +185,15 @@ def evaluate_at_temperature(
                 g_out = sample_preds[best_sample_idx]["gaze"][i].cpu().numpy() if "gaze" in sample_preds[0] else None
                 e_out = sample_preds[best_sample_idx]["emotion"][i].cpu().numpy() if "emotion" in sample_preds[0] else None
                 save_point_predictions_ply(
-                    batch_dev["coord"][i].cpu().numpy(), g_out, e_out, export_dir, prefix
+                    batch_dev["coord"][i].cpu().numpy(),
+                    g_out,
+                    e_out,
+                    export_dir,
+                    prefix,
+                    ref_pcd_path=batch_dev["ref_pcd_path"][i],
+                    vessel_id=batch_dev["vessel_id"][i],
+                    pottery_mesh_dir=pottery_mesh_dir,
+                    dense_points=dense_points,
                 )
                 if "text" in sample_preds[0]:
                     with open(os.path.join(export_dir, f"{prefix}_text.txt"), "w", encoding="utf-8") as f:
@@ -157,8 +224,11 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    lit_model = JomonJEPALightningModule.load_from_checkpoint(args.checkpoint, map_location=device)
-    cfg: JEPAConfig = lit_model.cfg
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    cfg = JEPAConfig(**ckpt["hyper_parameters"])
+    lit_model = JomonJEPALightningModule.load_from_checkpoint(
+        args.checkpoint, map_location=device, cfg=cfg
+    )
 
     if args.run_mode is not None:
         cfg.run_mode = args.run_mode
@@ -190,6 +260,8 @@ def main():
             num_samples=cfg.num_eval_samples_per_item,
             concept_bank=concept_bank,
             export_dir=None,
+            pottery_mesh_dir=cfg.pottery_mesh_dir,
+            dense_points=args.dense_points
         )
         results.append(metrics)
         print(

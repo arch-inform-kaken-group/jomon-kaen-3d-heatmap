@@ -27,6 +27,8 @@ class PointSpatialAffectDecoder(nn.Module):
         )
         self.gaze_head = nn.Linear(latent_dim // 2, 1)
         self.emotion_head = nn.Linear(latent_dim // 2, 5)
+        # Initialize emotion logits to sparse prior (~7.5% active) to prevent uniform saturation
+        nn.init.constant_(self.emotion_head.bias, -2.5)
 
     def forward(
         self, point_feats: torch.Tensor, pred_spatial_tokens: torch.Tensor
@@ -49,19 +51,10 @@ class PointSpatialAffectDecoder(nn.Module):
         temperature: float = 0.7,
         stochastic: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Temperature-scaled inference for gaze saliency and 5-emotion spatial maps.
-        """
         temp = max(temperature, 1e-3)
-        # Spatial gaze distribution normalized per vessel in [0, 1]
         gaze_probs = torch.sigmoid(gaze_logits / temp)
         gaze_probs = gaze_probs / (gaze_probs.amax(dim=1, keepdim=True) + 1e-6)
 
+        # Keep spatial emotion maps coherent across neighboring points (no per-point Bernoulli salt-and-pepper)
         emo_probs = torch.sigmoid(emotion_logits / temp)
-        if stochastic and temperature > 0.05:
-            # Sample binary emotion activations via Bernoulli draw from temperature-scaled probs
-            emo_out = torch.bernoulli(emo_probs)
-        else:
-            emo_out = emo_probs
-
-        return gaze_probs, emo_out
+        return gaze_probs, emo_probs

@@ -76,13 +76,21 @@ class PretrainedPTv3ObjectEncoder(nn.Module):
                 }
                 weight_name = weight_map.get(backbone_type, "sonata")
                 self.ptv3_model = ptv3.load(weight_name)
-                in_feat_dim = getattr(self.ptv3_model, "out_channels", 1232)
+
+                # Probe exact upcasted feature dimension returned by .embed() (e.g., 1232 for Sonata, 1088 for Concerto/Utonia)
+                probe_dev = next(self.ptv3_model.parameters()).device
+                with torch.no_grad():
+                    dummy_c = torch.zeros((16, 3), device=probe_dev)
+                    dummy_col = torch.zeros((16, 3), device=probe_dev)
+                    dummy_n = torch.zeros((16, 3), device=probe_dev)
+                    in_feat_dim = self.ptv3_model.embed(dummy_c, dummy_col, dummy_n).shape[-1]
+
                 self.proj = nn.Sequential(
                     nn.Linear(in_feat_dim, latent_dim),
                     nn.LayerNorm(latent_dim),
                     nn.GELU(),
                 )
-                print(f"[Encoder] Loaded pretrained PTv3 ({weight_name}) via Triton backend.")
+                print(f"[Encoder] Loaded pretrained PTv3 ({weight_name}, dim={in_feat_dim}) via Triton backend.")
             except Exception as e:
                 print(f"[Encoder] Could not load pretrained PTv3 ({e}). Using fallback encoder.")
                 self.ptv3_model = None

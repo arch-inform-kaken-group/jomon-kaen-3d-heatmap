@@ -45,12 +45,13 @@ def filter_paths_by_artifact_type(
     artifact_type: str = "all",
     custom_json_path: Optional[str] = None,
 ) -> List[dict]:
-    """Filters dataset entries by 'pottery', 'dogu', or 'all'."""
+    """Filters dataset entries by 'pottery', 'dogu', or 'all'/'both'."""
     taxonomy = build_artifact_taxonomy(custom_json_path)
     filtered = []
     for item in data_paths:
         pid = item.get("ID", "")
-        atype = taxonomy.get(pid, "pottery")
+        base_pid = pid.split("(")[0].strip()
+        atype = taxonomy.get(pid, taxonomy.get(base_pid, "pottery"))
         item["ARTIFACT_TYPE"] = atype
         if artifact_type in ("all", "both") or atype == artifact_type:
             filtered.append(item)

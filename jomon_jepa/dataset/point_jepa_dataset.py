@@ -241,28 +241,26 @@ class JomonJEPADataModule(pl.LightningDataModule):
             custom_json_path=self.cfg.custom_artifact_type_json,
         )
 
-        if self.cfg.limit_samples is not None:
-            combined_paths = combined_paths[: self.cfg.limit_samples]
-
         if len(combined_paths) == 0:
             raise ValueError("No valid data paths found after country and artifact_type filtering!")
 
-        # Vessel-disjoint split
+        # 1. Split held-out TEST_GROUPS FIRST (before any limit_samples truncation)
         val_set = set(self.cfg.val_vessel_ids)
         train_paths = [p for p in combined_paths if p["ID"] not in val_set]
         val_paths = [p for p in combined_paths if p["ID"] in val_set]
 
-        # Fallback split (e.g. if filtering only Dogu or a small WSL subset where holdout IDs aren't present)
+        # Fallback only if filtering for 'dogu' where none of the 8 pottery TEST_GROUPS exist
         if len(val_paths) == 0 or len(train_paths) == 0:
             unique_ids = sorted(list({p["ID"] for p in combined_paths}))
             n_val_ids = max(1, int(len(unique_ids) * self.cfg.val_split_ratio))
             fallback_val_ids = set(unique_ids[-n_val_ids:])
             train_paths = [p for p in combined_paths if p["ID"] not in fallback_val_ids]
             val_paths = [p for p in combined_paths if p["ID"] in fallback_val_ids]
-            if len(train_paths) == 0:
-                train_paths = combined_paths
-                val_paths = combined_paths[: max(1, len(combined_paths) // 4)]
 
+        # 2. Apply limit_samples AFTER splitting so val_paths always comes from TEST_GROUPS
+        if self.cfg.limit_samples is not None:
+            train_paths = train_paths[: self.cfg.limit_samples]
+            val_paths = val_paths[: max(4, self.cfg.limit_samples // 2)]
         self.train_paths = train_paths
         self.val_paths = val_paths
         print(
