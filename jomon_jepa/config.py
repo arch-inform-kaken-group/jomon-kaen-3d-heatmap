@@ -33,10 +33,10 @@ class JEPAConfig:
     data_roots: dict = field(default_factory=lambda: {
         # "japan": "/mnt/d/storage/jomon_kaen/jomon_kaen_dataset/japan",
         # "malaysia": "/mnt/d/storage/jomon_kaen/jomon_kaen_dataset/malaysia",
-        "japan": "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/japan",
-        "malaysia": "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/malaysia",
+        "japan": "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/japan",
+        "malaysia": "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/malaysia",
     })
-    pottery_mesh_dir: str = "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery"
+    pottery_mesh_dir: str = "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery"
     save_dir: str = "./runs_jomon_jepa"
 
     # Country & Artifact Type Filtering
