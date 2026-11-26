@@ -1,4 +1,5 @@
 import os
+import platform
 import re
 from typing import Dict, List, Optional, Tuple
 import numpy as np
@@ -182,6 +183,10 @@ class JomonPointJEPADataset(Dataset):
         }
 
 
+def _is_wsl() -> bool:
+    return "microsoft" in platform.uname().release.lower()
+
+
 def jepa_collate_fn(batch: List[Dict]) -> Dict:
     return {
         "coord": torch.stack([b["coord"] for b in batch]),
@@ -238,7 +243,6 @@ class JomonJEPADataModule(pl.LightningDataModule):
                 p["COUNTRY"] = c
             combined_paths.extend(list(paths))
 
-        # Filter by Pottery vs. Dogu
         combined_paths = filter_paths_by_artifact_type(
             combined_paths,
             artifact_type=self.cfg.artifact_type,
@@ -292,14 +296,18 @@ class JomonJEPADataModule(pl.LightningDataModule):
             augment=False,
         )
 
+    def _loader_workers(self) -> int:
+        return 0 if _is_wsl() else self.cfg.num_workers
+
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
             batch_size=self.cfg.batch_size,
             shuffle=True,
-            num_workers=self.cfg.num_workers,
-            pin_memory=True,
+            num_workers=self._loader_workers(),
+            pin_memory=torch.cuda.is_available(),
             collate_fn=jepa_collate_fn,
+            drop_last=len(self.train_dataset) >= self.cfg.batch_size,
         )
 
     def val_dataloader(self):
@@ -307,7 +315,7 @@ class JomonJEPADataModule(pl.LightningDataModule):
             self.val_dataset,
             batch_size=self.cfg.batch_size,
             shuffle=False,
-            num_workers=self.cfg.num_workers,
-            pin_memory=True,
+            num_workers=self._loader_workers(),
+            pin_memory=torch.cuda.is_available(),
             collate_fn=jepa_collate_fn,
         )
