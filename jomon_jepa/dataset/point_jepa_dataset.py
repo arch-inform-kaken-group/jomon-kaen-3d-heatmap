@@ -297,7 +297,9 @@ class JomonJEPADataModule(pl.LightningDataModule):
         )
 
     def _loader_workers(self) -> int:
-        return 0 if _is_wsl() else self.cfg.num_workers
+        if _is_wsl() or torch.cuda.is_initialized():
+            return 0
+        return self.cfg.num_workers
 
     def train_dataloader(self):
         return DataLoader(
