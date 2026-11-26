@@ -354,10 +354,10 @@ def attach_features_to_long(long_df, features_file):
 
 
 # ==========================================
-# 4. LMM ADJUSTED MEANS FOR 93 ITEMS
+# 4. LMM ADJUSTED MEANS FOR 85 ITEMS
 # ==========================================
 def get_lmm_adjusted_means(long_df):
-    print("Calculating LMM Adjusted Means for 93 Artifacts...")
+    print("Calculating LMM Adjusted Means for 85 Artifacts...")
 
     df = long_df.copy()
     df.dropna(subset=['Response', 'Emotion', 'pottery_id', 'Subject'], inplace=True)

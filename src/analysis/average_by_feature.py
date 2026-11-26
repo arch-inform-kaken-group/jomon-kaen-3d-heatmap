@@ -150,15 +150,65 @@ SHORT_LABELS_JP_TO_EN = {
 
 # CSV column name mapping
 FEATURE_NAME_MAPPING = {
-    'Flame-like decoration': 'HAS_FLAME_LIKE_DECORATION',
-    'Crown-like decoration': 'HAS_CROWN_LIKE_DECORATION',
-    'Handles': 'HAS_HANDLES',
-    'Cord-marked pattern': 'HAS_CORD_MARKED_PATTERN',
-    'Nail engraving': 'HAS_NAIL_ENGRAVING',
-    'Spiral pattern': 'HAS_SPIRAL_PATTERN',
-    'Flat base': 'HAS_FLAT_BASE'
+    'HAS_FLAME_LIKE_DECORATION': 'HAS_FLAME_LIKE_DECORATION',
+    'HAS_CROWN_LIKE_DECORATION': 'HAS_CROWN_LIKE_DECORATION',
+    'HAS_HANDLES': 'HAS_HANDLES',
+    'HAS_CORD_MARKED_PATTERN': 'HAS_CORD_MARKED_PATTERN',
+    'HAS_NAIL_ENGRAVING': 'HAS_NAIL_ENGRAVING',
+    'HAS_SPIRAL_PATTERN': 'HAS_SPIRAL_PATTERN',
+    'HAS_FLAT_BASE': 'HAS_FLAT_BASE'
 }
 
+PLOT_TITLE = {
+    'HAS_FLAME_LIKE_DECORATION': 'Flame-like decoration',
+    'HAS_CROWN_LIKE_DECORATION': 'Crown-like decoration',
+    'HAS_HANDLES': 'Handles',
+    'HAS_CORD_MARKED_PATTERN': 'Cord-marked pattern',
+    'HAS_NAIL_ENGRAVING': 'Nail engraving',
+    'HAS_SPIRAL_PATTERN': 'Spiral pattern',
+    'HAS_FLAT_BASE': 'Flat base' 
+}
+
+SHAPE_TYPE_LABELS = {
+    'SHAPE_TYPE_三仏生式': 'Sanbushou',
+    'SHAPE_TYPE_三十稲場式': 'Sanjuinaba',
+    'SHAPE_TYPE_千石原式': 'Sengokuhara',
+    'SHAPE_TYPE_南三十稲場式': 'Minamisanjuinaba',
+    'SHAPE_TYPE_大木7b式': 'Daigi-7b',
+    'SHAPE_TYPE_大木8a式': 'Daigi-8a',
+    'SHAPE_TYPE_新保新崎式': 'Shinbo-Ninzaki',
+    'SHAPE_TYPE_朝日式': 'Asahi',
+    'SHAPE_TYPE_栃倉式': 'Tochikura',
+    'SHAPE_TYPE_沖ノ原式': 'Okinohara',
+    'SHAPE_TYPE_馬高式': 'Umataka',
+    'SHAPE_TYPE_焼町系': 'Yakemachi',
+    'SHAPE_TYPE_室谷上層式': 'Muroyajoso',
+    'SHAPE_TYPE_室谷下層式': 'Muroyakaso',
+    'SHAPE_TYPE_貝殻条痕文': 'Kaigarajo-konmon',
+    'SHAPE_TYPE_卯ノ木式': 'Unoki',
+}
+
+def load_features_table(features_path: str) -> pd.DataFrame:
+    if str(features_path).lower().endswith('.xlsx'):
+        df = pd.read_excel(features_path)
+    else:
+        df = pd.read_csv(features_path)
+
+    df.columns = [str(c).strip() for c in df.columns]
+    df['pottery_id'] = df['Pottery ID'].astype(str).str.strip()
+
+    # Normalize TRUE/FALSE strings and 0/1 flags to numeric 0/1
+    indicator_cols = [
+        c for c in df.columns
+        if c.startswith(('HAS_', 'NUMBER_OF_PERTRUSIONS_', 'SHAPE_TYPE_'))
+    ]
+    for col in indicator_cols:
+        df[col] = pd.to_numeric(
+            df[col].replace({'TRUE': 1, 'FALSE': 0, True: 1, False: 0}),
+            errors='coerce'
+        ).fillna(0).astype(int)
+
+    return df
 
 # Data Loading Functions
 def find_data_paths_detailed(root: str,
@@ -229,15 +279,467 @@ def load_combined_qna_data(root_dir: str,
     return pd.concat(df_list, ignore_index=True)
 
 
+# def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
+#                                        combined_df_malaysia: pd.DataFrame,
+#                                        features_csv: str,
+#                                        selected_features: list = None,
+#                                        include_protrusions: bool = True,
+#                                        include_shape_types: bool = True):
+#     """Compare emotion responses between Japan and Malaysia by pottery features."""
+
+#     # Use English labels for everything
+#     emotion_order = [
+#         "Feel nothing", "Scary", "Strange", "Beautiful", "Interesting"
+#     ]
+#     colors = ["#505050", "#FF0000", "#FFFF00", "#00FF00", "#00FFFF"]
+
+#     emotion_order_legend = [
+#         "Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"
+#     ]
+#     colors_legend = ["#00FFFF", "#00FF00", "#FFFF00", "#FF0000", "#505050"]
+
+#     if combined_df_japan.empty or combined_df_malaysia.empty:
+#         print("One or both DataFrames are empty. No analysis performed.")
+#         return
+
+#     # Load features CSV
+#     features_df = pd.read_csv(features_csv)
+#     features_df['pottery_id'] = features_df['Pottery ID']
+
+#     # Process Japan data - map to English labels
+#     combined_df_japan['answer'] = combined_df_japan['answer'].str.strip()
+#     combined_df_japan['short_answer'] = combined_df_japan['answer'].map(
+#         SHORT_LABELS_JP_TO_EN)
+
+#     # Process Malaysia data - map to English labels
+#     combined_df_malaysia['answer'] = combined_df_malaysia['answer'].str.strip()
+#     combined_df_malaysia['short_answer'] = combined_df_malaysia['answer'].map(
+#         SHORT_LABELS_EN)
+
+#     # Calculate percentages for both datasets
+#     def calculate_percentages(df):
+#         session_counts_df = pd.crosstab([df['pottery_id'], df['session_id']],
+#                                         df['short_answer'])
+#         session_percentage_df = session_counts_df.div(
+#             session_counts_df.sum(axis=1), axis=0) * 100
+#         return session_percentage_df
+
+#     japan_session_pct = calculate_percentages(combined_df_japan)
+#     malaysia_session_pct = calculate_percentages(combined_df_malaysia)
+
+#     # Merge with features
+#     japan_merged = features_df.merge(japan_session_pct.reset_index(),
+#                                      on='pottery_id',
+#                                      how='inner')
+#     malaysia_merged = features_df.merge(malaysia_session_pct.reset_index(),
+#                                         on='pottery_id',
+#                                         how='inner')
+
+#     # Create output directory
+#     output_dir = "cross_cultural_comparison"
+#     os.makedirs(output_dir, exist_ok=True)
+
+#     # Get feature columns from CSV
+#     all_feature_columns = list(FEATURE_NAME_MAPPING.keys())
+
+#     # Filter to selected features if specified
+#     if selected_features is not None and len(selected_features) > 0:
+#         feature_columns = [
+#             f for f in selected_features if f in all_feature_columns
+#         ]
+#         if len(feature_columns) == 0:
+#             print(f"Warning: None of the selected features found in CSV.")
+#             return
+#         print(f"\nAnalyzing {len(feature_columns)} selected features...")
+#     else:
+#         feature_columns = all_feature_columns
+#         print(f"\nAnalyzing all {len(feature_columns)} binary features...")
+
+#     # Analyze each feature
+#     for feature in tqdm(feature_columns, desc="Processing features"):
+#         fig, ax = plt.subplots(figsize=(12, 8))
+
+#         # Process Japan data
+#         jp_feature_groups = japan_merged[japan_merged[feature] == 1]
+#         my_feature_groups = malaysia_merged[malaysia_merged[feature] == 1]
+
+#         if len(jp_feature_groups) == 0 or len(my_feature_groups) == 0:
+#             plt.close(fig)
+#             continue
+
+#         # Japan analysis (feature present only)
+#         jp_count = len(jp_feature_groups['session_id'].unique())
+#         jp_emotion_avgs = jp_feature_groups[emotion_order].mean()
+#         jp_emotion_stds = jp_feature_groups[emotion_order].std()
+
+#         # Malaysia analysis (feature present only)
+#         my_count = len(my_feature_groups['session_id'].unique())
+#         my_emotion_avgs = my_feature_groups[emotion_order].mean()
+#         my_emotion_stds = my_feature_groups[emotion_order].std()
+
+#         # Create combined dataframe
+#         combined_results = pd.DataFrame({
+#             f'Japan (n={jp_count})':
+#             jp_emotion_avgs,
+#             f'Malaysia (n={my_count})':
+#             my_emotion_avgs
+#         }).T
+
+#         combined_stds = pd.DataFrame({
+#             f'Japan (n={jp_count})':
+#             jp_emotion_stds,
+#             f'Malaysia (n={my_count})':
+#             my_emotion_stds
+#         }).T
+
+#         # Plot combined data
+#         combined_results[emotion_order].plot(kind='bar',
+#                                              stacked=True,
+#                                              ax=ax,
+#                                              color=colors,
+#                                              width=0.7,
+#                                              legend=False)
+
+#         # Add error bars
+#         x_positions = np.arange(len(combined_results))
+#         cumulative_bottoms = combined_results.cumsum(axis=1) - combined_results
+
+#         for i, emotion in enumerate(emotion_order):
+#             means = combined_results[emotion]
+#             stds = combined_stds[emotion]
+#             bottoms = cumulative_bottoms[emotion]
+#             y_midpoints = bottoms + means / 2.0
+
+#             for j, x_pos in enumerate(x_positions):
+#                 ax.text(x=x_pos + 0.06 + i * 0.05,
+#                         y=y_midpoints.iloc[j],
+#                         s=f"{stds.iloc[j]:.2f}",
+#                         fontsize=12)
+#                 ax.errorbar(x=[x_pos + i * 0.05 + 0.06],
+#                             y=[y_midpoints.iloc[j]],
+#                             yerr=stds.iloc[j] / 2.0,
+#                             fmt='none',
+#                             ecolor='black',
+#                             capsize=4,
+#                             elinewidth=1.2,
+#                             alpha=0.7)
+
+#         # Add value labels
+#         for container in ax.containers:
+#             if not hasattr(container, 'datavalues'):
+#                 continue
+#             labels = [
+#                 f'{v:.1f}' if v > 2 else '' for v in container.datavalues
+#             ]
+#             ax.bar_label(container,
+#                          labels=labels,
+#                          label_type='center',
+#                          fontsize=14,
+#                          color='black',
+#                          weight='bold')
+
+#         ax.set_title(f'Potteries with {feature}',
+#                      fontsize=24,
+#                      pad=20,
+#                      weight='bold')
+#         ax.set_ylabel('Average Percentage (%)', fontsize=18)
+#         ax.set_xlabel('', fontsize=18)
+#         ax.set_ylim(-10, 110)
+#         ax.set_xticklabels(combined_results.index, rotation=0, fontsize=16)
+#         ax.grid(axis='y', linestyle='--', alpha=0.3)
+
+#         # Create horizontal legend below
+#         from matplotlib.patches import Patch
+#         legend_elements = [
+#             Patch(facecolor=colors_legend[i], label=emotion_order_legend[i])
+#             for i in range(len(emotion_order_legend))
+#         ]
+#         legend_elements = legend_elements
+#         ax.legend(handles=legend_elements,
+#                   loc='lower center',
+#                   ncol=5,
+#                   fontsize=16,
+#                   frameon=True,
+#                   bbox_to_anchor=(0.5, -0.15))
+
+#         plt.tight_layout()
+
+#         # Save plot
+#         filename = f"{feature.lower().replace(' ', '_').replace('-', '_')}_comparison.png"
+#         plt.savefig(os.path.join(output_dir, filename),
+#                     dpi=1000,
+#                     bbox_inches='tight')
+#         plt.close(fig)
+
+#     # Analyze number of protrusions - SEPARATE GRAPHS
+#     if include_protrusions:
+#         print("\nAnalyzing number of protrusions...")
+#         protrusion_cols = [
+#             col for col in features_df.columns
+#             if col.startswith('Number_of_protrusions_')
+#         ]
+
+#         def get_protrusion_count(row):
+#             for col in protrusion_cols:
+#                 if row[col] == 1:
+#                     return col.replace('Number_of_protrusions_',
+#                                        '').replace('.0', '')
+#             return '0'
+
+#         japan_merged['protrusion_count'] = japan_merged.apply(
+#             get_protrusion_count, axis=1)
+#         malaysia_merged['protrusion_count'] = malaysia_merged.apply(
+#             get_protrusion_count, axis=1)
+
+#         # Create separate graphs for each country
+#         for country, merged_df in [('Japan', japan_merged),
+#                                    ('Malaysia', malaysia_merged)]:
+
+#             all_protrusion_counts = sorted(
+#                 merged_df['protrusion_count'].unique(),
+#                 key=lambda x: float(x) if x != 'Unknown' else -1)
+
+#             fig, ax = plt.subplots(figsize=(12, 8))
+
+#             results_list = []
+#             for count in all_protrusion_counts:
+#                 group = merged_df[merged_df['protrusion_count'] == count]
+#                 if len(group) < 2:
+#                     continue
+
+#                 n_sessions = len(group['session_id'].unique())
+#                 emotion_avgs = group[emotion_order].mean()
+#                 emotion_stds = group[emotion_order].std()
+
+#                 results_list.append({
+#                     'label': f'{count} protrusions\n(n={n_sessions})',
+#                     'avgs': emotion_avgs,
+#                     'stds': emotion_stds
+#                 })
+
+#             if results_list:
+#                 labels = [r['label'] for r in results_list]
+#                 results_df = pd.DataFrame([r['avgs'] for r in results_list],
+#                                           index=labels)
+#                 stds_df = pd.DataFrame([r['stds'] for r in results_list],
+#                                        index=labels)
+
+#                 results_df[emotion_order].plot(kind='bar',
+#                                                stacked=True,
+#                                                ax=ax,
+#                                                color=colors,
+#                                                width=0.7,
+#                                                legend=False)
+
+#                 # Add error bars
+#                 x_positions = np.arange(len(results_df))
+#                 cumulative_bottoms = results_df.cumsum(axis=1) - results_df
+
+#                 for i, emotion in enumerate(emotion_order):
+#                     means = results_df[emotion]
+#                     stds = stds_df[emotion]
+#                     bottoms = cumulative_bottoms[emotion]
+#                     y_midpoints = bottoms + means / 2.0
+
+#                     for j, x_pos in enumerate(x_positions):
+#                         ax.text(x=x_pos + 0.06 + i * 0.05,
+#                                 y=y_midpoints.iloc[j],
+#                                 s=f"{stds.iloc[j]:.2f}",
+#                                 fontsize=10)
+#                         ax.errorbar(x=[x_pos + i * 0.05 + 0.06],
+#                                     y=[y_midpoints.iloc[j]],
+#                                     yerr=stds.iloc[j] / 2.0,
+#                                     fmt='none',
+#                                     ecolor='black',
+#                                     capsize=4,
+#                                     elinewidth=1.2,
+#                                     alpha=0.7)
+
+#                 # Add value labels
+#                 for container in ax.containers:
+#                     if not hasattr(container, 'datavalues'):
+#                         continue
+#                     labels_vals = [
+#                         f'{v:.1f}' if v > 2 else ''
+#                         for v in container.datavalues
+#                     ]
+#                     ax.bar_label(container,
+#                                  labels=labels_vals,
+#                                  label_type='center',
+#                                  fontsize=12,
+#                                  color='black',
+#                                  weight='bold')
+
+#                 ax.set_title(
+#                     f'{country} - Emotion Response by Number of Protrusions',
+#                     fontsize=24,
+#                     pad=20,
+#                     weight='bold')
+#                 ax.set_ylabel('Average Percentage (%)', fontsize=18)
+#                 ax.set_xlabel('', fontsize=18)
+#                 ax.set_ylim(-10, 110)
+#                 ax.set_xticklabels(results_df.index,
+#                                    rotation=45,
+#                                    ha='right',
+#                                    fontsize=16)
+#                 ax.grid(axis='y', linestyle='--', alpha=0.3)
+
+#                 from matplotlib.patches import Patch
+#                 legend_elements = [
+#                     Patch(facecolor=colors_legend[i], label=emotion_order_legend[i])
+#                     for i in range(len(emotion_order_legend))
+#                 ]
+#                 ax.legend(handles=legend_elements,
+#                           loc='lower center',
+#                           ncol=5,
+#                           fontsize=16,
+#                           frameon=True,
+#                           bbox_to_anchor=(0.5, -0.4))
+
+#                 plt.tight_layout()
+#                 filename = f'protrusions_{country.lower()}.png'
+#                 plt.savefig(os.path.join(output_dir, filename),
+#                             dpi=1000,
+#                             bbox_inches='tight')
+#                 plt.close(fig)
+
+#     # Analyze shape types - SEPARATE GRAPHS
+#     if include_shape_types:
+#         print("\nAnalyzing shape types...")
+#         shape_type_cols = [
+#             col for col in features_df.columns if col.endswith(' type')
+#         ]
+
+#         def get_shape_type(row):
+#             for col in shape_type_cols:
+#                 if row[col] == 1:
+#                     return col.replace(' type', '')
+#             return 'Unknown'
+
+#         japan_merged['shape_type'] = japan_merged.apply(get_shape_type, axis=1)
+#         malaysia_merged['shape_type'] = malaysia_merged.apply(get_shape_type,
+#                                                               axis=1)
+
+#         # Create separate graphs for each country
+#         for country, merged_df in [('Japan', japan_merged),
+#                                    ('Malaysia', malaysia_merged)]:
+
+#             all_shape_types = sorted(merged_df['shape_type'].unique())
+
+#             fig, ax = plt.subplots(figsize=(18, 8))
+
+#             results_list = []
+#             for shape_type in all_shape_types:
+#                 group = merged_df[merged_df['shape_type'] == shape_type]
+#                 if len(group) < 2:
+#                     continue
+
+#                 n_sessions = len(group['session_id'].unique())
+#                 emotion_avgs = group[emotion_order].mean()
+#                 emotion_stds = group[emotion_order].std()
+
+#                 results_list.append({
+#                     'label': f'{shape_type}\n(n={n_sessions})',
+#                     'avgs': emotion_avgs,
+#                     'stds': emotion_stds
+#                 })
+
+#             if results_list:
+#                 labels = [r['label'] for r in results_list]
+#                 results_df = pd.DataFrame([r['avgs'] for r in results_list],
+#                                           index=labels)
+#                 stds_df = pd.DataFrame([r['stds'] for r in results_list],
+#                                        index=labels)
+
+#                 results_df[emotion_order].plot(kind='bar',
+#                                                stacked=True,
+#                                                ax=ax,
+#                                                color=colors,
+#                                                width=0.7,
+#                                                legend=False)
+
+#                 # Add error bars
+#                 x_positions = np.arange(len(results_df))
+#                 cumulative_bottoms = results_df.cumsum(axis=1) - results_df
+
+#                 for i, emotion in enumerate(emotion_order):
+#                     means = results_df[emotion]
+#                     stds = stds_df[emotion]
+#                     bottoms = cumulative_bottoms[emotion]
+#                     y_midpoints = bottoms + means / 2.0
+
+#                     for j, x_pos in enumerate(x_positions):
+#                         ax.text(x=x_pos + 0.06 + i * 0.05,
+#                                 y=y_midpoints.iloc[j],
+#                                 s=f"{stds.iloc[j]:.2f}",
+#                                 fontsize=9)
+#                         ax.errorbar(x=[x_pos + i * 0.05 + 0.06],
+#                                     y=[y_midpoints.iloc[j]],
+#                                     yerr=stds.iloc[j] / 2.0,
+#                                     fmt='none',
+#                                     ecolor='black',
+#                                     capsize=4,
+#                                     elinewidth=1.2,
+#                                     alpha=0.7)
+
+#                 # Add value labels
+#                 for container in ax.containers:
+#                     if not hasattr(container, 'datavalues'):
+#                         continue
+#                     labels_vals = [
+#                         f'{v:.1f}' if v > 2 else ''
+#                         for v in container.datavalues
+#                     ]
+#                     ax.bar_label(container,
+#                                  labels=labels_vals,
+#                                  label_type='center',
+#                                  fontsize=11,
+#                                  color='black',
+#                                  weight='bold')
+
+#                 ax.set_title(f'{country} - Emotion Response by Typology',
+#                              fontsize=24,
+#                              pad=20,
+#                              weight='bold')
+#                 ax.set_ylabel('Average Percentage (%)', fontsize=18)
+#                 ax.set_xlabel('', fontsize=18)
+#                 ax.set_ylim(-10, 110)
+#                 ax.set_xticklabels(results_df.index,
+#                                    rotation=45,
+#                                    ha='right',
+#                                    fontsize=16)
+#                 ax.grid(axis='y', linestyle='--', alpha=0.3)
+
+#                 from matplotlib.patches import Patch
+#                 legend_elements = [
+#                     Patch(facecolor=colors_legend[i], label=emotion_order_legend[i])
+#                     for i in range(len(emotion_order_legend))
+#                 ]
+#                 ax.legend(handles=legend_elements,
+#                           loc='lower center',
+#                           ncol=5,
+#                           fontsize=16,
+#                           frameon=True,
+#                           bbox_to_anchor=(0.5, -0.4))
+
+#                 plt.tight_layout()
+#                 filename = f'shape_type_{country.lower()}.png'
+#                 plt.savefig(os.path.join(output_dir, filename),
+#                             dpi=1000,
+#                             bbox_inches='tight')
+#                 plt.close(fig)
+
+#     print(f"\nAnalysis complete! Results saved to '{output_dir}/' directory")
+
+
 def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                        combined_df_malaysia: pd.DataFrame,
                                        features_csv: str,
                                        selected_features: list = None,
                                        include_protrusions: bool = True,
                                        include_shape_types: bool = True):
-    """Compare emotion responses between Japan and Malaysia by pottery features."""
+    """Compare emotion responses between Japan and Malaysia by pottery features (Option A: pottery-weighted, excluding NO RESPONSE)."""
 
-    # Use English labels for everything
     emotion_order = [
         "Feel nothing", "Scary", "Strange", "Beautiful", "Interesting"
     ]
@@ -253,35 +755,57 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
         return
 
     # Load features CSV
-    features_df = pd.read_csv(features_csv)
+    # features_df = pd.read_csv(features_csv)
+    features_df = load_features_table(features_csv)
     features_df['pottery_id'] = features_df['Pottery ID']
 
-    # Process Japan data - map to English labels
-    combined_df_japan['answer'] = combined_df_japan['answer'].str.strip()
+    combined_df_japan = combined_df_japan.copy()
+    combined_df_malaysia = combined_df_malaysia.copy()
+
+    # Process Japan data - map to English labels (NO RESPONSE -> NaN)
+    combined_df_japan['answer'] = combined_df_japan['answer'].astype(str).str.strip()
     combined_df_japan['short_answer'] = combined_df_japan['answer'].map(
         SHORT_LABELS_JP_TO_EN)
 
-    # Process Malaysia data - map to English labels
-    combined_df_malaysia['answer'] = combined_df_malaysia['answer'].str.strip()
+    # Process Malaysia data - map to English labels (NO RESPONSE -> NaN)
+    combined_df_malaysia['answer'] = combined_df_malaysia['answer'].astype(str).str.strip()
     combined_df_malaysia['short_answer'] = combined_df_malaysia['answer'].map(
         SHORT_LABELS_EN)
 
-    # Calculate percentages for both datasets
-    def calculate_percentages(df):
+    # Print point counts per answer (including NO RESPONSE before dropping)
+    for country_name, df_c in [("Japan", combined_df_japan), ("Malaysia", combined_df_malaysia)]:
+        print(f"\nPoint counts per answer ({country_name}):")
+        counts = df_c['short_answer'].fillna("NO RESPONSE / UNMAPPED").value_counts()
+        for ans, cnt in counts.items():
+            print(f"  {ans:<24}: {cnt:,} points")
+        print(f"  {'Total':<24}: {len(df_c):,} points")
+
+    # Drop NO RESPONSE before calculating percentages
+    combined_df_japan = combined_df_japan.dropna(subset=['short_answer'])
+    combined_df_malaysia = combined_df_malaysia.dropna(subset=['short_answer'])
+
+    # Calculate per-pottery mean percentages (session-normalized first, then averaged per pottery)
+    def calculate_pottery_percentages(df):
         session_counts_df = pd.crosstab([df['pottery_id'], df['session_id']],
                                         df['short_answer'])
         session_percentage_df = session_counts_df.div(
             session_counts_df.sum(axis=1), axis=0) * 100
-        return session_percentage_df
+        pottery_means = session_percentage_df.groupby('pottery_id').mean()
+        for col in emotion_order:
+            if col not in pottery_means.columns:
+                pottery_means[col] = 0.0
+        pottery_means = pottery_means[emotion_order].fillna(0.0)
+        pottery_means['instance_count'] = session_percentage_df.groupby('pottery_id').size()
+        return pottery_means
 
-    japan_session_pct = calculate_percentages(combined_df_japan)
-    malaysia_session_pct = calculate_percentages(combined_df_malaysia)
+    japan_pottery_pct = calculate_pottery_percentages(combined_df_japan)
+    malaysia_pottery_pct = calculate_pottery_percentages(combined_df_malaysia)
 
-    # Merge with features
-    japan_merged = features_df.merge(japan_session_pct.reset_index(),
+    # Merge with features (one row per pottery_id)
+    japan_merged = features_df.merge(japan_pottery_pct.reset_index(),
                                      on='pottery_id',
                                      how='inner')
-    malaysia_merged = features_df.merge(malaysia_session_pct.reset_index(),
+    malaysia_merged = features_df.merge(malaysia_pottery_pct.reset_index(),
                                         on='pottery_id',
                                         how='inner')
 
@@ -289,16 +813,14 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
     output_dir = "cross_cultural_comparison"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Get feature columns from CSV
     all_feature_columns = list(FEATURE_NAME_MAPPING.keys())
 
-    # Filter to selected features if specified
     if selected_features is not None and len(selected_features) > 0:
         feature_columns = [
             f for f in selected_features if f in all_feature_columns
         ]
         if len(feature_columns) == 0:
-            print(f"Warning: None of the selected features found in CSV.")
+            print("Warning: None of the selected features found in CSV.")
             return
         print(f"\nAnalyzing {len(feature_columns)} selected features...")
     else:
@@ -309,7 +831,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
     for feature in tqdm(feature_columns, desc="Processing features"):
         fig, ax = plt.subplots(figsize=(12, 8))
 
-        # Process Japan data
         jp_feature_groups = japan_merged[japan_merged[feature] == 1]
         my_feature_groups = malaysia_merged[malaysia_merged[feature] == 1]
 
@@ -317,32 +838,25 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
             plt.close(fig)
             continue
 
-        # Japan analysis (feature present only)
-        jp_count = len(jp_feature_groups['session_id'].unique())
+        # Count unique potteries (n) and average across potteries
+        jp_count = int(jp_feature_groups['instance_count'].sum())
         jp_emotion_avgs = jp_feature_groups[emotion_order].mean()
         jp_emotion_stds = jp_feature_groups[emotion_order].std()
 
-        # Malaysia analysis (feature present only)
-        my_count = len(my_feature_groups['session_id'].unique())
+        my_count = int(my_feature_groups['instance_count'].sum())
         my_emotion_avgs = my_feature_groups[emotion_order].mean()
         my_emotion_stds = my_feature_groups[emotion_order].std()
 
-        # Create combined dataframe
         combined_results = pd.DataFrame({
-            f'Japan (n={jp_count})':
-            jp_emotion_avgs,
-            f'Malaysia (n={my_count})':
-            my_emotion_avgs
+            f'Japan (n={jp_count})': jp_emotion_avgs,
+            f'Malaysia (n={my_count})': my_emotion_avgs
         }).T
 
         combined_stds = pd.DataFrame({
-            f'Japan (n={jp_count})':
-            jp_emotion_stds,
-            f'Malaysia (n={my_count})':
-            my_emotion_stds
+            f'Japan (n={jp_count})': jp_emotion_stds,
+            f'Malaysia (n={my_count})': my_emotion_stds
         }).T
 
-        # Plot combined data
         combined_results[emotion_order].plot(kind='bar',
                                              stacked=True,
                                              ax=ax,
@@ -350,7 +864,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                              width=0.7,
                                              legend=False)
 
-        # Add error bars
         x_positions = np.arange(len(combined_results))
         cumulative_bottoms = combined_results.cumsum(axis=1) - combined_results
 
@@ -374,7 +887,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                             elinewidth=1.2,
                             alpha=0.7)
 
-        # Add value labels
         for container in ax.containers:
             if not hasattr(container, 'datavalues'):
                 continue
@@ -388,7 +900,7 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                          color='black',
                          weight='bold')
 
-        ax.set_title(f'Potteries with {feature}',
+        ax.set_title(f'Potteries with {PLOT_TITLE[feature]}',
                      fontsize=24,
                      pad=20,
                      weight='bold')
@@ -398,13 +910,11 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
         ax.set_xticklabels(combined_results.index, rotation=0, fontsize=16)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
 
-        # Create horizontal legend below
         from matplotlib.patches import Patch
         legend_elements = [
             Patch(facecolor=colors_legend[i], label=emotion_order_legend[i])
             for i in range(len(emotion_order_legend))
         ]
-        legend_elements = legend_elements
         ax.legend(handles=legend_elements,
                   loc='lower center',
                   ncol=5,
@@ -413,8 +923,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                   bbox_to_anchor=(0.5, -0.15))
 
         plt.tight_layout()
-
-        # Save plot
         filename = f"{feature.lower().replace(' ', '_').replace('-', '_')}_comparison.png"
         plt.savefig(os.path.join(output_dir, filename),
                     dpi=1000,
@@ -422,18 +930,35 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
         plt.close(fig)
 
     # Analyze number of protrusions - SEPARATE GRAPHS
+    # if include_protrusions:
+    #     print("\nAnalyzing number of protrusions...")
+    #     protrusion_cols = [
+    #         col for col in features_df.columns
+    #         if col.startswith('Number_of_protrusions_')
+    #     ]
+
+    #     def get_protrusion_count(row):
+    #         for col in protrusion_cols:
+    #             if row[col] == 1:
+    #                 return col.replace('Number_of_protrusions_',
+    #                                    '').replace('.0', '')
+    #         return '0'
+
+    #     japan_merged['protrusion_count'] = japan_merged.apply(
+    #         get_protrusion_count, axis=1)
+    #     malaysia_merged['protrusion_count'] = malaysia_merged.apply(
+    #         get_protrusion_count, axis=1)
     if include_protrusions:
         print("\nAnalyzing number of protrusions...")
         protrusion_cols = [
             col for col in features_df.columns
-            if col.startswith('Number_of_protrusions_')
+            if col.startswith('NUMBER_OF_PERTRUSIONS_')
         ]
 
         def get_protrusion_count(row):
             for col in protrusion_cols:
                 if row[col] == 1:
-                    return col.replace('Number_of_protrusions_',
-                                       '').replace('.0', '')
+                    return col.replace('NUMBER_OF_PERTRUSIONS_', '').replace('.0', '')
             return '0'
 
         japan_merged['protrusion_count'] = japan_merged.apply(
@@ -441,7 +966,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
         malaysia_merged['protrusion_count'] = malaysia_merged.apply(
             get_protrusion_count, axis=1)
 
-        # Create separate graphs for each country
         for country, merged_df in [('Japan', japan_merged),
                                    ('Malaysia', malaysia_merged)]:
 
@@ -457,12 +981,12 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                 if len(group) < 2:
                     continue
 
-                n_sessions = len(group['session_id'].unique())
+                n_instances = int(group['instance_count'].sum())
                 emotion_avgs = group[emotion_order].mean()
                 emotion_stds = group[emotion_order].std()
 
                 results_list.append({
-                    'label': f'{count} protrusions\n(n={n_sessions})',
+                    'label': f'{count} protrusions\n(n={n_instances})',
                     'avgs': emotion_avgs,
                     'stds': emotion_stds
                 })
@@ -481,7 +1005,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                                width=0.7,
                                                legend=False)
 
-                # Add error bars
                 x_positions = np.arange(len(results_df))
                 cumulative_bottoms = results_df.cumsum(axis=1) - results_df
 
@@ -505,7 +1028,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                     elinewidth=1.2,
                                     alpha=0.7)
 
-                # Add value labels
                 for container in ax.containers:
                     if not hasattr(container, 'datavalues'):
                         continue
@@ -553,26 +1075,49 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                             bbox_inches='tight')
                 plt.close(fig)
 
+    def calculate_session_percentages(df):
+        session_counts_df = pd.crosstab([df['pottery_id'], df['session_id']],
+                                        df['short_answer'])
+        session_percentage_df = session_counts_df.div(
+            session_counts_df.sum(axis=1), axis=0) * 100
+        for col in emotion_order:
+            if col not in session_percentage_df.columns:
+                session_percentage_df[col] = 0.0
+        return session_percentage_df[emotion_order].fillna(0.0).reset_index()
+
+    japan_session_merged = features_df.merge(
+        calculate_session_percentages(combined_df_japan),
+        on='pottery_id',
+        how='inner'
+    )
+    malaysia_session_merged = features_df.merge(
+        calculate_session_percentages(combined_df_malaysia),
+        on='pottery_id',
+        how='inner'
+    )
+
     # Analyze shape types - SEPARATE GRAPHS
+    # Analyze shape types - SEPARATE GRAPHS (session-level aggregation, no NaN std)
     if include_shape_types:
         print("\nAnalyzing shape types...")
         shape_type_cols = [
-            col for col in features_df.columns if col.endswith(' type')
+            col for col in features_df.columns
+            if col.startswith('SHAPE_TYPE_') and 'NAN' not in col.upper()
         ]
 
         def get_shape_type(row):
             for col in shape_type_cols:
                 if row[col] == 1:
-                    return col.replace(' type', '')
+                    return SHAPE_TYPE_LABELS.get(col, col.replace('SHAPE_TYPE_', ''))
             return 'Unknown'
 
-        japan_merged['shape_type'] = japan_merged.apply(get_shape_type, axis=1)
-        malaysia_merged['shape_type'] = malaysia_merged.apply(get_shape_type,
-                                                              axis=1)
+        japan_session_merged['shape_type'] = japan_session_merged.apply(
+            get_shape_type, axis=1)
+        malaysia_session_merged['shape_type'] = malaysia_session_merged.apply(
+            get_shape_type, axis=1)
 
-        # Create separate graphs for each country
-        for country, merged_df in [('Japan', japan_merged),
-                                   ('Malaysia', malaysia_merged)]:
+        for country, merged_df in [('Japan', japan_session_merged),
+                                   ('Malaysia', malaysia_session_merged)]:
 
             all_shape_types = sorted(merged_df['shape_type'].unique())
 
@@ -608,7 +1153,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                                width=0.7,
                                                legend=False)
 
-                # Add error bars
                 x_positions = np.arange(len(results_df))
                 cumulative_bottoms = results_df.cumsum(axis=1) - results_df
 
@@ -632,7 +1176,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                                     elinewidth=1.2,
                                     alpha=0.7)
 
-                # Add value labels
                 for container in ax.containers:
                     if not hasattr(container, 'datavalues'):
                         continue
@@ -681,7 +1224,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
 
     print(f"\nAnalysis complete! Results saved to '{output_dir}/' directory")
 
-
 def compute_cosine_similarities_with_interesting(
         combined_df_japan: pd.DataFrame,
         combined_df_malaysia: pd.DataFrame,
@@ -702,7 +1244,8 @@ def compute_cosine_similarities_with_interesting(
     import numpy as np
 
     # Load features
-    features_df = pd.read_csv(features_csv)
+    # features_df = pd.read_csv(features_csv)
+    features_df = load_features_table(features_csv)
 
     features_df['pottery_id'] = features_df['Pottery ID']
 
@@ -934,11 +1477,12 @@ def compute_cosine_similarities_with_interesting(
 
 # Main Execution
 if __name__ == "__main__":
-    POTTERY_MODELS_DIR = "./src/pottery"
-    FEATURES_CSV = "./DS_Labels_Cleaned.csv"
+    POTTERY_MODELS_DIR = r"D:\storage\jomon_kaen\pottery"
+    # FEATURES_CSV = "./src/DS_Labels_Cleaned.csv"
+    FEATURES_CSV = "./src/DS_Labels_Cleaned_backup.xlsx"
 
-    DATASET_ROOT_JAPAN = "./src/jomon_kaen_dataset/japan"
-    DATASET_ROOT_MALAYSIA = "./src/jomon_kaen_dataset/malaysia"
+    DATASET_ROOT_JAPAN = r"D:\storage\jomon_kaen\jomon_kaen_dataset\japan"
+    DATASET_ROOT_MALAYSIA = r"D:\storage\jomon_kaen\jomon_kaen_dataset\malaysia"
 
     # SELECT FEATURES TO ANALYZE
     SELECTED_FEATURES = None  # None for all features, or list specific ones
@@ -957,17 +1501,28 @@ if __name__ == "__main__":
                                              POTTERY_MODELS_DIR)
 
         if not df_japan.empty and not df_malaysia.empty:
+            # print(
+            #     "\nComparing Japan and Malaysia emotion responses by features..."
+            # )
+            # compare_japan_malaysia_by_features(
+            #     df_japan,
+            #     df_malaysia,
+            #     FEATURES_CSV,
+            #     selected_features=SELECTED_FEATURES,
+            #     include_protrusions=INCLUDE_PROTRUSIONS,
+            #     include_shape_types=INCLUDE_SHAPE_TYPES)
+            
             print(
                 "\nComparing Japan and Malaysia emotion responses by features..."
             )
             compare_japan_malaysia_by_features(
-                df_japan,
-                df_malaysia,
+                df_japan.copy(),
+                df_malaysia.copy(),
                 FEATURES_CSV,
                 selected_features=SELECTED_FEATURES,
                 include_protrusions=INCLUDE_PROTRUSIONS,
                 include_shape_types=INCLUDE_SHAPE_TYPES)
-            
+                
             print("\nComputing cross-cultural similarities (INCLUDING 'Interesting')...")
             sim_results = compute_cosine_similarities_with_interesting(
                 df_japan.copy(),

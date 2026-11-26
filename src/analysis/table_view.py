@@ -6,7 +6,7 @@ import os
 # ==========================================
 # CONFIGURATION
 # ==========================================
-INPUT_FILE = "anova_lmm_statistical_analysis/ANOVA_and_LMM_Analysis.xlsx"
+INPUT_FILE = "anova_lmm_statistical_analysis/ANOVA_LMM_Japan_vs_Malaysia_Analysis.xlsx"
 OUTPUT_FILE = "anova_lmm_statistical_analysis/Paper_Tables_Ready.xlsx"
 EMOTIONS = ["Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"]
 
@@ -57,6 +57,19 @@ def format_cell(mean1, mean2, p_val):
     stars = get_asterisks(parse_p_value(p_val))
     return f"{arrow}{stars}"
 
+def format_cell_absent_present(mean1, mean2, p_val):
+    """Generate the final table cell string (e.g., '↑***', '↓*', 'ns').
+    Note: mean1 is always the first alphabetical group (e.g., Dogu, Japan, Present)."""
+    is_sig = parse_p_value(p_val) < 0.05
+    if not is_sig:
+        return "ns"
+
+    if pd.isna(mean1) or pd.isna(mean2):
+        return "?"
+
+    arrow = "↓" if mean1 > mean2 else "↑"
+    stars = get_asterisks(parse_p_value(p_val))
+    return f"{arrow}{stars}"
 
 # ==========================================
 # 1. GENERATE TABLE 1: SIGNIFICANCE MATRIX (Overall)
@@ -81,7 +94,7 @@ def generate_table1(xlsx):
         for _, row in df_22.iterrows():
             m1, m2 = parse_means_from_details(row['Group_Details'])
             matrix_data.setdefault(row['Typology'],
-                                   {})[row['Emotion']] = format_cell(
+                                   {})[row['Emotion']] = format_cell_absent_present(
                                        m1,
                                        m2,
                                        row['LMM_p_value'])
@@ -92,7 +105,7 @@ def generate_table1(xlsx):
             feat = row['Feature'].replace("HAS_", "").replace("_", " ").title()
             m1, m2 = parse_means_from_details(row['Group_Details'])
             matrix_data.setdefault(feat,
-                                   {})[row['Emotion']] = format_cell(
+                                   {})[row['Emotion']] = format_cell_absent_present(
                                        m1,
                                        m2,
                                        row['LMM_p_value'])
