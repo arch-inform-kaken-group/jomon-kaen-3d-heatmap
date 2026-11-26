@@ -43,6 +43,7 @@ class JomonJEPALightningModule(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=(k in ("total_loss", "gaze_loss", "emotion_loss", "text_loss")),
                 batch_size=batch["coord"].shape[0],
+                sync_dist=(stage == "val"),
             )
         return losses["total_loss"]
 
@@ -155,7 +156,7 @@ def main():
         max_epochs=cfg.max_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.devices if torch.cuda.is_available() else 1,
-        strategy="ddp" if (torch.cuda.is_available() and cfg.devices > 1) else "auto",
+        strategy="ddp_find_unused_parameters_true" if (torch.cuda.is_available() and cfg.devices > 1) else "auto",
         precision=cfg.precision if torch.cuda.is_available() else "32-true",
         callbacks=[ckpt_callback, LearningRateMonitor(logging_interval="epoch")],
         logger=loggers,
