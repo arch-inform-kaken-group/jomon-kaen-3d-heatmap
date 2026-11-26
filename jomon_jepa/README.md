@@ -1,6 +1,27 @@
+INSTALL
+
+```Bash
+cd /path/to/jomon_jepa
+uv sync
+source .venv/bin/activate
+```
+
+Faster Triton kernels
+```Bash
+sudo apt-get install -y build-essential python3.12-dev
+```
+
+Open3D requirements for Ubuntu
+```Bash
+sudo apt-get update && sudo apt-get install -y libusb-1.0-0 libgomp1 libgl1
+sudo apt-get install -y ffmpeg
+```
+
+TRAIN
+
 1. WSL2 Smoke Test (2 epochs on a small subset, Next-Concept model)
 ```Bash
-python train.py \
+uv run python3 train.py \
   --run_mode wsl_test \
   --country japan \
   --artifact_type pottery \
@@ -11,7 +32,7 @@ python train.py \
 
 2. WSL2 Cross-Modal Conditioning Test (['object', 'gaze'] -> ['emotion', 'text'] with SLM)
 ```Bash
-python train.py \
+uv run python3 train.py \
   --run_mode wsl_test \
   --country malaysia \
   --artifact_type dogu \
@@ -22,9 +43,9 @@ python train.py \
 
 3. DGX Full Training Run (Multi-GPU)
 ```Bash
-python train.py \
+uv run python3 train.py \
   --run_mode dgx_full \
-  --country all \
+  --country japan \
   --artifact_type all \
   --inputs object \
   --outputs gaze emotion text \
@@ -34,7 +55,7 @@ python train.py \
 
 4. Evaluation + Temperature Search
 ```Bash
-python eval.py \
+uv run python3 eval.py \
   --checkpoint ./checkpoints_jomon_jepa/last.ckpt \
   --run_mode dgx_full \
   --country japan \

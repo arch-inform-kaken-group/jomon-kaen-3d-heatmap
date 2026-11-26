@@ -65,13 +65,17 @@ class PretrainedPTv3ObjectEncoder(nn.Module):
         self.ptv3_model = None
         self.proj = None
 
-        if backbone_type in ("ptv3_sonata", "ptv3_concerto"):
+        if backbone_type in ("ptv3_sonata", "ptv3_concerto", "ptv3_utonia"):
             try:
                 import point_transformer_v3 as ptv3
 
-                weight_name = "sonata" if backbone_type == "ptv3_sonata" else "concerto_base"
+                weight_map = {
+                    "ptv3_sonata": "sonata",
+                    "ptv3_concerto": "concerto",
+                    "ptv3_utonia": "utonia",
+                }
+                weight_name = weight_map.get(backbone_type, "sonata")
                 self.ptv3_model = ptv3.load(weight_name)
-                # Sonata outputs 1232-dim upcasted point features; Concerto outputs 1088/1232
                 in_feat_dim = getattr(self.ptv3_model, "out_channels", 1232)
                 self.proj = nn.Sequential(
                     nn.Linear(in_feat_dim, latent_dim),

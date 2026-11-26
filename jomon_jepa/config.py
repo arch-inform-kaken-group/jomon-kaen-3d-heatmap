@@ -60,7 +60,7 @@ class JEPAConfig:
     use_normals: bool = True
 
     # 3D Backbone (PointTransformerV3 / Sonata / Concerto)
-    backbone_type: Literal["ptv3_sonata", "ptv3_concerto", "pointnet_fallback"] = "ptv3_sonata"
+    backbone_type: Literal["ptv3_sonata", "ptv3_concerto", "ptv3_utonia", "pointnet_fallback"] = "ptv3_sonata"
     ptv3_pretrained_repo: str = "facebook/sonata"
     freeze_backbone_epochs: int = 5
     latent_dim: int = 256

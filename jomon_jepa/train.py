@@ -73,7 +73,12 @@ def parse_args():
     parser.add_argument("--inputs", nargs="+", default=["object"], help="e.g. object gaze")
     parser.add_argument("--outputs", nargs="+", default=["gaze", "emotion", "text"], help="e.g. emotion text")
     parser.add_argument("--text_decoder", type=str, default="next_concept", choices=["slm", "next_concept"])
-    parser.add_argument("--backbone", type=str, default="ptv3_sonata", choices=["ptv3_sonata", "ptv3_concerto", "pointnet_fallback"])
+    parser.add_argument(
+        "--backbone",
+        type=str,
+        default="ptv3_sonata",
+        choices=["ptv3_sonata", "ptv3_concerto", "ptv3_utonia", "pointnet_fallback"],
+    )
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--devices", type=int, default=None)
