@@ -159,5 +159,11 @@ def main():
     print(f"Training complete.\n  Best checkpoint: {ckpt_callback.best_model_path}\n  Logs saved to:   {log_dir}")
 
 
+from utils.crash_logger import run_with_crash_logger
+
 if __name__ == "__main__":
-    main()
+    run_with_crash_logger(
+        main,
+        log_dir="./runs_jomon_jepa/crash_logs",
+        script_name="train",
+    )
