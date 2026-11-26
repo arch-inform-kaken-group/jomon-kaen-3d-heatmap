@@ -243,11 +243,14 @@ def main():
         f"eval_{cfg.country}_{cfg.artifact_type}",
     )
 
+    cfg.num_workers = 0
     datamodule = JomonJEPADataModule(cfg)
     datamodule.setup()
 
     model = lit_model.model.to(device).eval()
-    concept_bank = build_concept_bank(model, datamodule.train_dataloader(), device)
+    concept_bank = None
+    if cfg.text_decoder_type == "next_concept":
+        concept_bank = build_concept_bank(model, datamodule.train_dataloader(), device)
 
     print(f"\n=== Temperature Search [{cfg.get_experiment_tag()} | {cfg.country}/{cfg.artifact_type}] ===")
     results = []

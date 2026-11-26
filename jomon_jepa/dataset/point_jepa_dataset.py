@@ -297,7 +297,7 @@ class JomonJEPADataModule(pl.LightningDataModule):
         )
 
     def _loader_workers(self) -> int:
-        if _is_wsl() or torch.cuda.is_initialized():
+        if _is_wsl() or getattr(self, "_force_zero_workers", False):
             return 0
         return self.cfg.num_workers
 
