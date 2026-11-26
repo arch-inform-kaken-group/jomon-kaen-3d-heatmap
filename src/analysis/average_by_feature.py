@@ -1097,7 +1097,6 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
     )
 
     # Analyze shape types - SEPARATE GRAPHS
-    # Analyze shape types - SEPARATE GRAPHS (session-level aggregation, no NaN std)
     if include_shape_types:
         print("\nAnalyzing shape types...")
         shape_type_cols = [
@@ -1129,7 +1128,7 @@ def compare_japan_malaysia_by_features(combined_df_japan: pd.DataFrame,
                 if len(group) < 2:
                     continue
 
-                n_sessions = len(group['session_id'].unique())
+                n_sessions = len(group)
                 emotion_avgs = group[emotion_order].mean()
                 emotion_stds = group[emotion_order].std()
 
