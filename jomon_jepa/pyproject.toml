@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Multimodal 3D-JEPA with PointTransformerV3 (Sonata/Concerto/Utonia) for Jomon Affective Modeling"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "torch>=2.10.0",
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
     "point-transformer-v3>=0.1.0",
     "pytorch-lightning>=2.4.0",
     "open3d>=0.18.0,<0.20.0",
@@ -21,7 +22,6 @@ dependencies = [
     "reportlab",
     "Pillow",
     "tqdm",
-    "torchaudio>=2.11.1",
     "pydub>=0.25.1",
     "soundfile>=0.14.0",
     "faster-whisper>=1.2.1",
@@ -29,4 +29,16 @@ dependencies = [
 ]
 
 [tool.uv]
-torch-backend = "auto"
+override-dependencies = [
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
