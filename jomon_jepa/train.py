@@ -11,6 +11,7 @@ from dataset.point_jepa_dataset import JomonJEPADataModule
 from models.multimodal_jepa import build_multimodal_jepa
 from losses import MultimodalJEPACriterion
 
+torch.set_float32_matmul_precision("high")
 
 class JomonJEPALightningModule(pl.LightningModule):
     def __init__(self, cfg: JEPAConfig = None, **kwargs):
