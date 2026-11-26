@@ -278,10 +278,10 @@ def main():
             model=model,
             val_loader=datamodule.val_dataloader(),
             device=device,
-            temperature=best_temp,
+            temperature=temp,
             num_samples=cfg.num_eval_samples_per_item,
             concept_bank=concept_bank,
-            export_dir=export_dir,
+            export_dir=None,
             pottery_mesh_dir=cfg.pottery_mesh_dir,
             dense_points=args.dense_points,
         )
@@ -308,6 +308,8 @@ def main():
         num_samples=cfg.num_eval_samples_per_item,
         concept_bank=concept_bank,
         export_dir=export_dir,
+        pottery_mesh_dir=cfg.pottery_mesh_dir,
+        dense_points=args.dense_points,
     )
     print(f"Saved optimal predictions to {export_dir}")
 
