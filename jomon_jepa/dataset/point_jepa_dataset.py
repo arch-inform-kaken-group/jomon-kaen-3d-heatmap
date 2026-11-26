@@ -208,17 +208,21 @@ class JomonJEPADataModule(pl.LightningDataModule):
         self.val_paths = []
 
     def setup(self, stage: Optional[str] = None):
+        if getattr(self, "train_dataset", None) is not None and getattr(self, "val_dataset", None) is not None:
+            return
+
         countries = ["japan", "malaysia"] if self.cfg.country in ("all", "both") else [self.cfg.country]
         combined_paths = []
 
+        pottery_dir = os.path.expanduser(self.cfg.pottery_mesh_dir)
         for c in countries:
-            root_dir = self.cfg.data_roots[c]
+            root_dir = os.path.expanduser(self.cfg.data_roots[c])
             if not os.path.exists(root_dir):
                 print(f"[Warning] Country data root not found, skipping: {root_dir}")
                 continue
             paths, _ = filter_data_on_condition(
                 root=root_dir,
-                pottery_path=self.cfg.pottery_mesh_dir,
+                pottery_path=pottery_dir,
                 preprocess=True,
                 use_cache=True,
                 mode=0,
@@ -246,8 +250,15 @@ class JomonJEPADataModule(pl.LightningDataModule):
 
         # 1. Split held-out TEST_GROUPS FIRST (before any limit_samples truncation)
         val_set = set(self.cfg.val_vessel_ids)
-        train_paths = [p for p in combined_paths if p["ID"] not in val_set]
-        val_paths = [p for p in combined_paths if p["ID"] in val_set]
+        val_base_set = {vid.split("(")[0].strip() for vid in val_set}
+        train_paths = [
+            p for p in combined_paths
+            if p["ID"] not in val_set and p["ID"].split("(")[0].strip() not in val_base_set
+        ]
+        val_paths = [
+            p for p in combined_paths
+            if p["ID"] in val_set or p["ID"].split("(")[0].strip() in val_base_set
+        ]
 
         # Fallback only if filtering for 'dogu' where none of the 8 pottery TEST_GROUPS exist
         if len(val_paths) == 0 or len(train_paths) == 0:

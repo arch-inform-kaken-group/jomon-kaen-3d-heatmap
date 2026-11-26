@@ -127,6 +127,14 @@ def main():
     print(f"[Experiment Dir] {exp_dir}")
 
     datamodule = JomonJEPADataModule(cfg)
+
+    # Pre-build dataset cache on a single process BEFORE spawning multi-GPU DDP workers
+    if torch.cuda.is_available() and cfg.devices > 1 and os.environ.get("LOCAL_RANK") is None:
+        print("[Preprocess] Building/verifying dataset cache on single process before DDP launch...")
+        datamodule.prepare_data()
+        datamodule.setup(stage="fit")
+        print("[Preprocess] Dataset cache verified. Launching DDP workers...")
+
     model = JomonJEPALightningModule(cfg)
 
     ckpt_callback = ModelCheckpoint(

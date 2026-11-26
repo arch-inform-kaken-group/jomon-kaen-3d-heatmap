@@ -33,10 +33,10 @@ class JEPAConfig:
     data_roots: dict = field(default_factory=lambda: {
         # "japan": "/mnt/d/storage/jomon_kaen/jomon_kaen_dataset/japan",
         # "malaysia": "/mnt/d/storage/jomon_kaen/jomon_kaen_dataset/malaysia",
-        "japan": "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/japan",
-        "malaysia": "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/malaysia",
+        "japan": "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/japan",
+        "malaysia": "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/jomon_kaen_dataset/malaysia",
     })
-    pottery_mesh_dir: str = "/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery"
+    pottery_mesh_dir: str = "~/Desktop/jomonkaen/jomon-kaen-3d-heatmap/src/pottery"
     save_dir: str = "./runs_jomon_jepa"
 
     # Country & Artifact Type Filtering
@@ -107,11 +107,16 @@ class JEPAConfig:
     w_text: float = 1.0
 
     def normalize_filters(self):
-        """Normalizes 'all' -> 'both' and sorts modality lists canonically."""
+        """Normalizes 'all' -> 'both', expands '~' paths, and sorts modality lists canonically."""
         if self.country == "all":
             self.country = "both"
         if self.artifact_type == "all":
             self.artifact_type = "both"
+        self.data_roots = {
+            k: os.path.expanduser(v) for k, v in self.data_roots.items()
+        }
+        self.pottery_mesh_dir = os.path.expanduser(self.pottery_mesh_dir)
+        self.save_dir = os.path.expanduser(self.save_dir)
         self.input_modalities = [m for m in MODALITY_ORDER if m in set(self.input_modalities)]
         self.output_modalities = [m for m in MODALITY_ORDER if m in set(self.output_modalities)]
 
