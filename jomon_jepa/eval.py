@@ -221,6 +221,12 @@ def main():
     parser.add_argument("--eval_country", type=str, default=None, choices=["japan", "malaysia", "both"])
     parser.add_argument("--eval_artifact_type", type=str, default=None, choices=["pottery", "dogu", "both"])
     parser.add_argument("--export_dir", type=str, default=None)
+    parser.add_argument(
+        "--dense_points",
+        type=int,
+        default=100000,
+        help="Number of surface points sampled from raw meshes for dense .ply heatmap exports.",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
