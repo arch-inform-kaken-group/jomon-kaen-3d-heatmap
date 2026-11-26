@@ -77,8 +77,10 @@ class JEPAConfig:
     max_concepts_per_transcript: int = 6
     max_text_len: int = 128
     use_lora: bool = True
-    lora_r: int = 16
-    lora_alpha: int = 32
+    lora_r: int = 8              # down from 16
+    lora_alpha: int = 16         # down from 32
+    lora_dropout: float = 0.15   # add dropout in LoraConfig (in models/decoders.py)
+    slm_lr: float = 3e-5         # down from 2e-4 (7x lower than spatial/JEPA heads)
 
     # Stochastic Sampling & Temperature Search
     default_temperature: float = 0.7
@@ -105,7 +107,7 @@ class JEPAConfig:
     w_vicreg: float = 0.25
     w_gaze: float = 1.5
     w_emotion: float = 1.5
-    w_text: float = 1.0
+    w_text: float = 0.25
 
     def normalize_filters(self):
         """Normalizes 'all' -> 'both', expands '~' paths, and sorts modality lists canonically."""
@@ -156,7 +158,7 @@ class JEPAConfig:
         elif self.run_mode == "dgx_full":
             self.max_epochs = 120
             self.batch_size = 16
-            self.num_workers = 2 # 8
+            self.num_workers = 8 # 8
             self.num_points = 16384
             self.precision = "bf16-mixed"
             self.limit_samples = None

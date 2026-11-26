@@ -123,8 +123,16 @@ def save_point_predictions_ply(
         for c_idx, meta in enumerate(CANONICAL_EMOTIONS):
             rgb = np.array(DEFAULT_QNA_ANSWER_COLOR_MAP[meta["jp"]]["rgb"], dtype=np.float64) / 255.0
             raw_p = emo_pred[:, c_idx]
-            intensity = np.clip((raw_p - 0.25) / 0.75, 0.0, 1.0)[:, None]
-            colors = 0.12 * (1.0 - intensity) + rgb[None, :] * intensity
+
+            # Subtract baseline floor and scale relative to vessel peak (with min denominator 0.35
+            # so absent emotions remain dark gray instead of amplifying background noise)
+            p_shifted = np.maximum(raw_p - 0.15, 0.0)
+            denom = max(float(p_shifted.max()), 0.35)
+            intensity = np.clip(p_shifted / denom, 0.0, 1.0)
+            intensity = (intensity ** 0.65)[:, None]  # Gamma boost for vivid mid-range saliency
+
+            base_gray = np.array([0.16, 0.16, 0.18], dtype=np.float64)
+            colors = base_gray[None, :] * (1.0 - intensity) + rgb[None, :] * intensity
             pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(export_pts))
             pcd.colors = o3d.utility.Vector3dVector(colors)
             o3d.io.write_point_cloud(
@@ -180,10 +188,14 @@ def evaluate_at_temperature(
             else:
                 best_sample_idx = 0
 
-            if export_dir is not None and b_idx < 5:
+            if export_dir is not None:
                 prefix = f"{batch_dev['vessel_id'][i]}_{batch_dev['group'][i]}_{batch_dev['session_id'][i]}"
                 g_out = sample_preds[best_sample_idx]["gaze"][i].cpu().numpy() if "gaze" in sample_preds[0] else None
-                e_out = sample_preds[best_sample_idx]["emotion"][i].cpu().numpy() if "emotion" in sample_preds[0] else None
+                e_out = (
+                    sample_preds[best_sample_idx]["emotion_probs"][i].cpu().numpy()
+                    if "emotion_probs" in sample_preds[0]
+                    else (sample_preds[best_sample_idx]["emotion"][i].cpu().numpy() if "emotion" in sample_preds[0] else None)
+                )
                 save_point_predictions_ply(
                     batch_dev["coord"][i].cpu().numpy(),
                     g_out,
@@ -243,6 +255,7 @@ def main():
         cfg.country = args.eval_country
     if args.eval_artifact_type is not None:
         cfg.artifact_type = args.eval_artifact_type
+    cfg.limit_samples = None  # Evaluate all 177 held-out validation instances
 
     export_dir = args.export_dir or os.path.join(
         cfg.get_experiment_dir(),
@@ -265,12 +278,12 @@ def main():
             model=model,
             val_loader=datamodule.val_dataloader(),
             device=device,
-            temperature=temp,
+            temperature=best_temp,
             num_samples=cfg.num_eval_samples_per_item,
             concept_bank=concept_bank,
-            export_dir=None,
+            export_dir=export_dir,
             pottery_mesh_dir=cfg.pottery_mesh_dir,
-            dense_points=args.dense_points
+            dense_points=args.dense_points,
         )
         results.append(metrics)
         print(

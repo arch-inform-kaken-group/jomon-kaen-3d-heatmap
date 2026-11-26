@@ -29,6 +29,10 @@ class JomonJEPALightningModule(pl.LightningModule):
         trainable = self.current_epoch >= self.cfg.freeze_backbone_epochs
         self.model.object_encoder.set_backbone_trainable(trainable)
 
+        # Two-stage text warmup: disable text loss during Epochs 0-79, enable with weight 0.25 at Epoch 80+
+        if "text" in self.cfg.output_modalities:
+            self.criterion.w_text = 0.0 if self.current_epoch < 80 else 0.25
+
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.model.update_ema_teacher(momentum=0.99)
 
@@ -55,15 +59,22 @@ class JomonJEPALightningModule(pl.LightningModule):
 
     def configure_optimizers(self):
         backbone_params = list(self.model.object_encoder.parameters())
-        backbone_ids = {id(p) for p in backbone_params}
-        other_params = [p for p in self.model.parameters() if id(p) not in backbone_ids and p.requires_grad]
+        backbone_ids = {id(p) for p in self.model.object_encoder.parameters()}
+        slm_ids = {id(p) for p in self.model.text_decoder.parameters()} if hasattr(self.model, "text_decoder") else set()
+
+        backbone_params = [p for p in self.model.object_encoder.parameters() if p.requires_grad]
+        slm_params = [p for p in self.model.parameters() if id(p) in slm_ids and p.requires_grad]
+        spatial_jepa_params = [
+            p for p in self.model.parameters()
+            if id(p) not in backbone_ids and id(p) not in slm_ids and p.requires_grad
+        ]
 
         optimizer = torch.optim.AdamW(
             [
-                {"params": [p for p in backbone_params if p.requires_grad], "lr": self.cfg.backbone_lr},
-                {"params": other_params, "lr": self.cfg.lr},
-            ],
-            weight_decay=self.cfg.weight_decay,
+                {"params": backbone_params, "lr": self.cfg.backbone_lr, "weight_decay": 0.01},
+                {"params": slm_params, "lr": getattr(self.cfg, "slm_lr", 3e-5), "weight_decay": 0.05},
+                {"params": spatial_jepa_params, "lr": self.cfg.lr, "weight_decay": 0.01},
+            ]
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=max(1, self.cfg.max_epochs), eta_min=1e-6
