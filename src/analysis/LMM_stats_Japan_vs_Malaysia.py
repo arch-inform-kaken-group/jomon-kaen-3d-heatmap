@@ -42,7 +42,7 @@ EMOTION_MAP = {
 }
 
 EMOTION_COLS = ["Interesting", "Beautiful", "Strange", "Scary", "Feel nothing"]
-TARGET_LANGUAGES = ['ENGLISH', 'MALAY', 'CHINESE', 'JAPANESE']
+TARGET_LANGUAGES = ['ENGLISH', 'MALAY', 'CHINESE', 'JAPANESE', 'TAMIL', 'OTHER']
 
 
 # ==========================================
@@ -157,20 +157,26 @@ def load_multilingual_dataset(root_dirs):
                             language = 'ENGLISH'
                         elif 'MALAY' in text or 'BM ' in text or text == 'BM':
                             language = 'MALAY'
-                        elif 'CHINESE' in text or 'MANDARIN' in text:
+                        elif 'CHINESE' in text or 'MANDARIN' in text or 'ZH' in text:
                             language = 'CHINESE'
+                        elif 'TAMIL' in text or text == 'TA':
+                            language = 'TAMIL'
                         elif 'JAPANESE' in text or 'JP ' in text or text == 'JP':
                             language = 'JAPANESE'
+                        elif text:
+                            language = 'OTHER'
                     except Exception:
                         pass
 
                 if language is None and "japan" in str(root_path).lower():
                     language = 'JAPANESE'
+                elif language is None:
+                    language = 'OTHER'
 
                 if language not in TARGET_LANGUAGES:
                     continue
 
-                subject_id = group_path.name
+                subject_id = f"{group_path.name}::{session_path.name}"
 
                 for pottery_path in session_path.iterdir():
                     if not pottery_path.is_dir():
@@ -818,6 +824,19 @@ def main():
     sess_dur_feat_long['Subject_UID'] = (
         sess_dur_feat_long['Country'].astype(str).str.upper() + '::' +
         sess_dur_feat_long['Subject'].astype(str)
+    )
+
+    jp_n = int((sess_events_long['Country'] == 'JAPAN').sum() // 5)
+    my_n = int((sess_events_long['Country'] == 'MALAYSIA').sum() // 5)
+    jp_p = int(sess_events_long.loc[sess_events_long['Country'] == 'JAPAN', 'Subject'].nunique())
+    my_p = int(sess_events_long.loc[sess_events_long['Country'] == 'MALAYSIA', 'Subject'].nunique())
+
+    print(
+        "\nDataset Summary (Cleaned QA Corpus):\n"
+        "  Recruited Cohort            : Japan=143, Malaysia=152 (Total=295 participants; 2,152 initial gaze-valid sessions)\n"
+        f"  Valid Emotion-Map Instances : Japan={jp_n} ({jp_p} participants), Malaysia={my_n} ({my_p} participants) "
+        f"-> Total={jp_n + my_n} across {jp_p + my_p} participants\n"
+        "  Valid Emotion + Transcript  : Japan=1185, Malaysia=801 (Total=1986)"
     )
 
     # ==========================================================
